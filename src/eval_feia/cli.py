@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import sys
+import csv
 from pathlib import Path
 from typing import Annotated
 
@@ -13,7 +14,7 @@ from rich.table import Table
 from .cleanup import cleanup_manifest
 from .models import BatchOptions
 from .orchestrator import run_batch
-from .reports import read_json, write_json
+from .reports import SUMMARY_COLUMNS, read_json, write_json
 
 
 app = typer.Typer(no_args_is_help=True, pretty_exceptions_show_locals=False, help="OpenCode Agent Evaluation Harness.")
@@ -83,7 +84,9 @@ def run(
     else:
         console.print(f"batch | completed | {batch_dir}")
     if failed:
-        raise typer.Exit(1)
+        guard_failures = {"server_unhealthy", "server_version_mismatch", "cwd_mismatch", "server_restart_exhausted", "harness_error"}
+        exit_code = 3 if any(result.failure_class in guard_failures for result in failed) else 1
+        raise typer.Exit(exit_code)
 
 
 @app.command()
@@ -93,16 +96,39 @@ def collect(batch_dir: Annotated[Path, typer.Argument(exists=True, file_okay=Fal
     rows = []
     for path in sorted(runs_dir.glob("*/run.json")):
         run_data = read_json(path)
+        metrics = run_data.get("metrics", {})
+        validation = run_data.get("validation", {})
+        server_info = run_data.get("server_info", {})
+        worktree = run_data.get("worktree", {})
         rows.append(
             {
+                "batch_id": run_data.get("batch_id", batch_dir.name),
                 "run_id": run_data.get("run_id"),
                 "status": run_data.get("status"),
                 "failure_class": run_data.get("failure_class"),
-                "validation_passed": run_data.get("validation", {}).get("validation_passed"),
+                "model": "",
+                "provider": "",
+                "opencode_version": server_info.get("requested_version", ""),
+                "worktree_path": worktree.get("path", ""),
+                "port": server_info.get("port", ""),
+                "server_restart_count": metrics.get("server_restart_count", 0),
+                "total_messages": metrics.get("total_messages", 0),
+                "total_tool_calls": metrics.get("total_tool_calls", 0),
+                "total_subagent_run": metrics.get("total_subagent_run", 0),
+                "total_operational_ms": metrics.get("total_operational_ms", 0),
+                "validation_passed": validation.get("validation_passed", False),
+                "task_success": metrics.get("task_success", False),
+                "error_message": run_data.get("error_message", ""),
             }
         )
-    write_json(batch_dir / "collected.json", {"batch_id": batch_dir.name, "runs": rows})
-    console.print(f"collected | {len(rows)} runs | {batch_dir / 'collected.json'}")
+    summary = {"batch_id": batch_dir.name, "runs": rows}
+    write_json(batch_dir / "summary.json", summary)
+    with (batch_dir / "summary.csv").open("w", encoding="utf-8", newline="") as stream:
+        writer = csv.DictWriter(stream, fieldnames=SUMMARY_COLUMNS)
+        writer.writeheader()
+        writer.writerows(rows)
+    write_json(batch_dir / "collected.json", summary)
+    console.print(f"collected | {len(rows)} runs | {batch_dir / 'summary.json'}")
 
 
 @app.command()
