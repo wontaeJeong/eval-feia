@@ -112,15 +112,19 @@ class OpenCodeProcessManager:
     ) -> ProcessHandle:
         log_path.parent.mkdir(parents=True, exist_ok=True)
         log_file = log_path.open("a", encoding="utf-8")
-        proc = subprocess.Popen(
-            command,
-            cwd=str(cwd),
-            env=env,
-            stdout=log_file,
-            stderr=subprocess.STDOUT,
-            text=True,
-            start_new_session=True,
-        )
+        try:
+            proc = subprocess.Popen(
+                command,
+                cwd=str(cwd),
+                env=env,
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                text=True,
+                start_new_session=True,
+            )
+        except Exception:
+            log_file.close()
+            raise
         return ProcessHandle(
             process=proc,
             pid=proc.pid,
