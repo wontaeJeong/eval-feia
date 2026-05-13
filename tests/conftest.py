@@ -70,6 +70,7 @@ class FakeOpenCodeState:
     session_count: int = 0
     sse_connected: bool = False
     prompt_before_sse: bool = False
+    sse_close_immediately: bool = False
     order: list[str] = field(default_factory=list)
     prompt_at: float | None = None
     busy_for: float = 0.05
@@ -171,6 +172,11 @@ class FakeOpenCodeServer:
                     self.end_headers()
                     self.wfile.write(b'data: {"payload":{"type":"server.connected","properties":{}}}\n\n')
                     self.wfile.flush()
+                    if state.sse_close_immediately:
+                        return
+                    deadline = time.monotonic() + 3
+                    while state.prompt_count == 0 and time.monotonic() < deadline:
+                        time.sleep(0.01)
                     return
                 if parsed.path == "/session/status":
                     active = state.prompt_at is not None and time.monotonic() - state.prompt_at < state.busy_for

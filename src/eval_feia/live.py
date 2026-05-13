@@ -117,6 +117,26 @@ def render_state_table(states: list[LiveState]) -> Table:
     return table
 
 
+def render_snapshot_table(snapshots: list[dict[str, Any]]) -> Table:
+    table = Table("Run", "Port", "Phase", "Health", "CWD", "Msg", "Tool", "Child", "Todo", "Quiet", "Elapsed", "Note")
+    for snapshot in snapshots:
+        table.add_row(
+            str(snapshot.get("run_id", "-")),
+            str(snapshot.get("port", "-")),
+            str(snapshot.get("phase", "-"))[:16],
+            str(snapshot.get("health", "-"))[:8],
+            str(snapshot.get("cwd", "-"))[:8],
+            str(snapshot.get("msg", 0)),
+            str(snapshot.get("tool", 0)),
+            str(snapshot.get("child", 0)),
+            str(snapshot.get("todo", "-"))[:8],
+            str(snapshot.get("quiet", 0)),
+            str(snapshot.get("elapsed_ms", 0)),
+            str(snapshot.get("note", ""))[:24],
+        )
+    return table
+
+
 def render_once(states: list[LiveState], console: Console) -> None:
     console.print(render_state_table(states))
 

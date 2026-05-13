@@ -1,4 +1,4 @@
-# pyright: reportMissingImports=false
+# pyright: reportMissingImports=false, reportArgumentType=false
 from __future__ import annotations
 
 import io
@@ -57,11 +57,14 @@ def test_fake_server_happy_path_outputs_files_and_orders_sse_before_prompt(git_r
         run_dir = batch_dir / "runs" / "run-001"
         for name in ["run.json", "events.jsonl", "status_snapshots.jsonl", "children_snapshots.jsonl", "todo_snapshots.jsonl", "validation.json"]:
             assert (run_dir / name).exists()
+        assert (run_dir / "artifacts" / "team.json").exists()
         manifest = json.loads((batch_dir / "manifest.json").read_text(encoding="utf-8"))
         assert manifest["runs"][0]["worktree"]["path"]
         events = [json.loads(line) for line in output.splitlines()]
         assert any(event["type"] == "worktree_created" for event in events)
         assert any(event["type"] == "server_info" for event in events)
+        run_data = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
+        assert run_data["live_summary"]["sse_parser_errors"] == 0
     finally:
         server.stop()
 
@@ -118,5 +121,22 @@ def test_health_timeout_fails_without_session_or_prompt(git_repo: Path, tmp_path
         assert results[0].failure_class == "server_unhealthy"
         assert server.state.session_count == 0
         assert server.state.prompt_count == 0
+    finally:
+        server.stop()
+
+
+def test_closed_sse_stream_blocks_prompt(git_repo: Path, tmp_path: Path) -> None:
+    server = FakeOpenCodeServer(FakeOpenCodeState(sse_close_immediately=True)).start()
+    stream = io.StringIO()
+    try:
+        batch_dir, results = run_batch(
+            options(git_repo, tmp_path, server),
+            stream,
+            lambda _message: None,
+            process_manager=FakeProcessManager(server),
+        )
+        assert results[0].failure_class == "harness_error"
+        assert server.state.prompt_count == 0
+        assert (batch_dir / "runs" / "run-001" / "diff.patch").exists()
     finally:
         server.stop()

@@ -1,3 +1,4 @@
+# pyright: reportMissingImports=false
 from __future__ import annotations
 
 import tempfile
@@ -5,9 +6,13 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Callable, TextIO
+from shutil import copy2
+from typing import Any, Callable, Protocol, TextIO
 
-from .live import JsonlWriter, LiveState, idle_complete
+from rich.console import Console
+from rich.live import Live
+
+from .live import JsonlWriter, LiveState, idle_complete, render_snapshot_table
 from .metrics import apply_validation, update_metrics_from_event, update_metrics_from_todo
 from .models import (
     BatchOptions,
@@ -30,12 +35,31 @@ from .validation import validate_worktree
 from .worktree import create_worktree, resolve_base_commit
 
 
+class ProcessManager(Protocol):
+    def start(self, command: list[str], cwd: Path, env: dict[str, str], log_path: Path, port: int) -> ProcessHandle: ...
+
+    def stop(self, handle: ProcessHandle, timeout: float = 5.0) -> dict[str, bool]: ...
+
+
 class ProgressEmitter:
-    def __init__(self, json_mode: bool, stream: TextIO, console_print: Callable[[str], None]) -> None:
+    def __init__(self, json_mode: bool, stream: TextIO, console_print: Callable[[str], None], live_enabled: bool = False) -> None:
         self.json_mode = json_mode
         self.writer = JsonlWriter(stream) if json_mode else None
         self.console_print = console_print
         self._lock = threading.Lock()
+        self.live_enabled = live_enabled
+        self._snapshots: dict[str, dict[str, Any]] = {}
+        self._live: Live | None = None
+
+    def start(self) -> None:
+        if self.live_enabled and self._live is None:
+            self._live = Live(render_snapshot_table([]), console=Console(), refresh_per_second=4, transient=False)
+            self._live.start()
+
+    def stop(self) -> None:
+        if self._live is not None:
+            self._live.stop()
+            self._live = None
 
     def emit(self, event: dict[str, Any]) -> None:
         with self._lock:
@@ -44,7 +68,10 @@ class ProgressEmitter:
             else:
                 event_type = event.get("type", "event")
                 run_id = event.get("run_id", "-")
-                if event_type == "worktree_created":
+                if event_type == "run_progress" and self._live is not None:
+                    self._snapshots[str(run_id)] = event
+                    self._live.update(render_snapshot_table(list(self._snapshots.values())), refresh=True)
+                elif event_type == "worktree_created":
                     self.console_print(f"{run_id} | worktree | {event.get('path')}")
                 elif event_type == "server_info":
                     self.console_print(
@@ -96,7 +123,7 @@ class RunExecutor:
         batch_dir: Path,
         base_commit: str,
         emitter: ProgressEmitter,
-        process_manager: OpenCodeProcessManager | None = None,
+        process_manager: ProcessManager | None = None,
         client_factory: Callable[[str, str, str, Path], OpenCodeClient] | None = None,
     ) -> None:
         self.options = options
@@ -124,6 +151,7 @@ class RunExecutor:
         todo_path = run_results_dir / "todo_snapshots.jsonl"
         prompt_path = run_results_dir / "prompt.txt"
         prompt_path.write_text(self.options.prompt, encoding="utf-8")
+        (run_results_dir / "diff.patch").touch()
         events_stream = events_path.open("a", encoding="utf-8")
         status_stream = status_path.open("a", encoding="utf-8")
         children_stream = children_path.open("a", encoding="utf-8")
@@ -143,6 +171,7 @@ class RunExecutor:
         client: OpenCodeClient | None = None
         listener: SseListener | None = None
         started_at = time.monotonic()
+        last_activity = {"value": started_at}
         try:
             live.set_phase("worktree")
             worktree = create_worktree(
@@ -152,6 +181,7 @@ class RunExecutor:
                 self.base_commit,
                 on_created=lambda path: self._emit_worktree(run_id, path),
             )
+            event_writer.write({"type": "worktree_created", "run_id": run_id, "path": worktree.path, "at": now_iso()})
             live.worktree_path = worktree.path
             password = generate_password()
             restart_count = 0
@@ -170,6 +200,7 @@ class RunExecutor:
                     self.options.server_start_timeout_seconds,
                     self.options.health_poll_interval_seconds,
                 )
+                event_writer.write({"type": "health_check", "run_id": run_id, "health": dataclass_to_json(health), "at": now_iso()})
                 if not health.ok:
                     return self._finish_failure(
                         run_id,
@@ -188,6 +219,7 @@ class RunExecutor:
                 live.health = "ok"
                 live.set_phase("cwd-check")
                 cwd = client.verify_cwd(Path(worktree.path)) if self.options.cwd_check else CwdCheck(True, Path(worktree.path).as_posix(), cwd_check="skipped")
+                event_writer.write({"type": "cwd_check", "run_id": run_id, "cwd_check": dataclass_to_json(cwd), "at": now_iso()})
                 live.cwd = cwd.cwd_check
                 server_info = ServerInfo(
                     run_id=run_id,
@@ -207,6 +239,7 @@ class RunExecutor:
                 )
                 metrics.server_start_elapsed_ms = server_info.server_start_elapsed_ms
                 live.set_phase("server-info")
+                event_writer.write({"type": "server_info", **dataclass_to_json(server_info), "at": now_iso()})
                 self.emitter.emit({"type": "server_info", **dataclass_to_json(server_info)})
                 mismatch_reason = None
                 if health.version_check == "mismatch":
@@ -215,15 +248,15 @@ class RunExecutor:
                     mismatch_reason = "cwd_mismatch"
                 if mismatch_reason is None:
                     break
-                self.emitter.emit(
-                    {
-                        "type": "server_mismatch",
-                        "run_id": run_id,
-                        "reason": mismatch_reason,
-                        "expected": self.options.opencode_version if mismatch_reason == "version_mismatch" else cwd.expected_cwd,
-                        "actual": health.reported_version if mismatch_reason == "version_mismatch" else cwd.actual_cwd,
-                    }
-                )
+                mismatch_event = {
+                    "type": "server_mismatch",
+                    "run_id": run_id,
+                    "reason": mismatch_reason,
+                    "expected": self.options.opencode_version if mismatch_reason == "version_mismatch" else cwd.expected_cwd,
+                    "actual": health.reported_version if mismatch_reason == "version_mismatch" else cwd.actual_cwd,
+                }
+                event_writer.write({**mismatch_event, "at": now_iso()})
+                self.emitter.emit(mismatch_event)
                 if not self.options.restart_on_mismatch or restart_count >= self.options.max_server_restarts:
                     failure: FailureClass = "server_restart_exhausted" if self.options.restart_on_mismatch else ("server_version_mismatch" if mismatch_reason == "version_mismatch" else "cwd_mismatch")
                     return self._finish_failure(
@@ -242,11 +275,15 @@ class RunExecutor:
                     )
                 restart_count += 1
                 metrics.server_restart_count = restart_count
-                self.emitter.emit({"type": "server_restart", "run_id": run_id, "action": "stopping", "pid": handle.pid, "restart_count": restart_count})
+                restart_stop_event = {"type": "server_restart", "run_id": run_id, "action": "stopping", "pid": handle.pid, "restart_count": restart_count}
+                event_writer.write({**restart_stop_event, "at": now_iso()})
+                self.emitter.emit(restart_stop_event)
                 stop_result = self.process_manager.stop(handle)
                 restart_history.append({"attempt": restart_count, "pid": handle.pid, "reason": mismatch_reason, **dataclass_to_json(server_info), **stop_result})
                 client.close()
-                self.emitter.emit({"type": "server_restart", "run_id": run_id, "action": "starting", "port": port, "restart_count": restart_count})
+                restart_start_event = {"type": "server_restart", "run_id": run_id, "action": "starting", "port": port, "restart_count": restart_count}
+                event_writer.write({**restart_start_event, "at": now_iso()})
+                self.emitter.emit(restart_start_event)
             live.set_phase("server-ready")
             metrics.server_ready = True
             live.set_phase("session-create")
@@ -269,10 +306,13 @@ class RunExecutor:
                     payload = payload["payload"]
                 if isinstance(payload, dict):
                     update_metrics_from_event(metrics, payload)
+                last_activity["value"] = time.monotonic()
 
             listener = SseListener(base_url, "/global/event", USERNAME, password, worktree.path, on_event)
             listener.start()
-            sse_connected = listener.wait_connected(timeout=10.0) and listener.error is None
+            sse_connected = listener.wait_connected(timeout=10.0)
+            time.sleep(0.05)
+            sse_connected = sse_connected and listener.error is None and not listener.stopped.is_set()
             summary.sse_connected_at = now_iso() if sse_connected else None
             gate_ok, gate_failures = prompt_gate(True, handle.alive(), health, server_info, cwd, session_id, sse_connected)
             if not gate_ok:
@@ -296,9 +336,9 @@ class RunExecutor:
             summary.prompt_sent_at = now_iso()
             metrics.prompt_sent = True
             live.set_phase("running")
-            last_activity = time.monotonic()
             status: dict[str, Any] = {}
             child_ids: list[str] = []
+            last_todo_signature: str | None = None
             deadline = time.monotonic() + self.options.hard_timeout_seconds
             while time.monotonic() < deadline:
                 status = client.status()
@@ -310,26 +350,38 @@ class RunExecutor:
                 todo = client.todo(session_id)
                 summary.total_todo_polls += 1
                 todo_writer.write({"type": "todo_snapshot", "run_id": run_id, "todo": todo, "at": now_iso()})
+                todo_signature = repr(todo)
+                if last_todo_signature is not None and todo_signature != last_todo_signature:
+                    last_activity["value"] = time.monotonic()
+                last_todo_signature = todo_signature
                 update_metrics_from_todo(metrics, todo)
                 active = live.update_status(status)
                 live.update_children(children)
                 live.update_todo(todo)
                 child_ids = [str(item.get("id")) for item in children if item.get("id")]
                 if active:
-                    last_activity = time.monotonic()
-                live.quiet_seconds = time.monotonic() - last_activity
+                    last_activity["value"] = time.monotonic()
+                live.quiet_seconds = time.monotonic() - last_activity["value"]
                 self.emitter.emit({"type": "run_progress", **live.snapshot()})
-                if idle_complete(status, [session_id, *child_ids], last_activity, self.options.idle_quiet_seconds):
+                if idle_complete(status, [session_id, *child_ids], last_activity["value"], self.options.idle_quiet_seconds):
                     break
                 time.sleep(max(0.05, min(self.options.health_poll_interval_seconds, 1.0)))
             else:
                 metrics.timeout = True
                 return self._finish_failure(run_id, worktree, health, cwd, server_info, restart_history, summary, metrics, ValidationResult(False, errors=["validation skipped"]), "timeout", "hard timeout", run_results_dir)
             live.set_phase("idle-wait")
+            if listener is not None:
+                listener.stop()
+                summary.sse_parser_errors = listener.parser.parse_errors
             diff = client.diff(session_id)
             (run_results_dir / "diff.patch").write_text(diff, encoding="utf-8")
             validation = validate_worktree(Path(worktree.path))
+            if validation.artifact_found and validation.artifact_path:
+                source_artifact = Path(worktree.path) / validation.artifact_path
+                if source_artifact.exists():
+                    copy2(source_artifact, run_results_dir / "artifacts" / source_artifact.name)
             write_json(run_results_dir / "validation.json", validation)
+            event_writer.write({"type": "validation", "run_id": run_id, "validation": dataclass_to_json(validation), "at": now_iso()})
             apply_validation(metrics, validation)
             metrics.opencode_completed = True
             metrics.total_operational_ms = int((time.monotonic() - started_at) * 1000)
@@ -339,7 +391,9 @@ class RunExecutor:
             summary.final_phase = status_text
             result = RunResult(run_id, self.batch, status_text, failure, worktree, health, cwd, server_info, restart_history, summary, metrics, validation)
             write_json(run_results_dir / "run.json", result)
-            self.emitter.emit({"type": "run_completed" if status_text == "completed" else "run_failed", "run_id": run_id, "status": status_text, "failure_class": failure})
+            completion_event = {"type": "run_completed" if status_text == "completed" else "run_failed", "run_id": run_id, "status": status_text, "failure_class": failure}
+            event_writer.write({**completion_event, "at": now_iso()})
+            self.emitter.emit(completion_event)
             return result
         except Exception as exc:
             validation = ValidationResult(False, errors=["validation skipped"])
@@ -377,6 +431,8 @@ class RunExecutor:
         metrics.total_operational_ms = metrics.total_operational_ms or 0
         summary.final_phase = "failed"
         write_json(run_results_dir / "validation.json", validation)
+        if not (run_results_dir / "diff.patch").exists():
+            (run_results_dir / "diff.patch").touch()
         result = RunResult(run_id, self.batch, "failed", failure_class, worktree, health, cwd, server_info, restart_history, summary, metrics, validation, error_message)
         write_json(run_results_dir / "run.json", result)
         self.emitter.emit({"type": "run_failed", "run_id": run_id, "status": "failed", "failure_class": failure_class, "reason": error_message})
@@ -387,7 +443,7 @@ def run_batch(
     options: BatchOptions,
     stream: TextIO,
     console_print: Callable[[str], None],
-    process_manager: OpenCodeProcessManager | None = None,
+    process_manager: ProcessManager | None = None,
     client_factory: Callable[[str, str, str, Path], OpenCodeClient] | None = None,
 ) -> tuple[Path, list[RunResult]]:
     options.repo = options.repo.resolve()
@@ -397,13 +453,17 @@ def run_batch(
     batch_dir = options.output_dir / batch
     batch_dir.mkdir(parents=True, exist_ok=True)
     base_commit = resolve_base_commit(options.repo, options.branch)
-    emitter = ProgressEmitter(options.json, stream, console_print)
+    emitter = ProgressEmitter(options.json, stream, console_print, live_enabled=not options.json and not options.no_live)
     executor = RunExecutor(options, batch, batch_dir, base_commit, emitter, process_manager, client_factory)
     results: list[RunResult] = []
-    with ThreadPoolExecutor(max_workers=options.concurrency) as pool:
-        futures = [pool.submit(executor.run, index) for index in range(1, options.count + 1)]
-        for future in as_completed(futures):
-            results.append(future.result())
+    emitter.start()
+    try:
+        with ThreadPoolExecutor(max_workers=options.concurrency) as pool:
+            futures = [pool.submit(executor.run, index) for index in range(1, options.count + 1)]
+            for future in as_completed(futures):
+                results.append(future.result())
+    finally:
+        emitter.stop()
     results.sort(key=lambda item: item.run_id)
     manifest = create_manifest(batch, options, base_commit)
     for result in results:
