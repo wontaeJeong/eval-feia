@@ -20,7 +20,9 @@ def test_sse_parser_basic_event() -> None:
     events = parser.feed_lines(['event: custom', 'data: {"type":"message.updated"}', ''])
     assert len(events) == 1
     assert events[0].event == "custom"
-    assert events[0].json_data()["type"] == "message.updated"
+    data = events[0].json_data()
+    assert isinstance(data, dict)
+    assert data["type"] == "message.updated"
 
 
 def test_sse_parser_multiline_and_parse_error_count() -> None:

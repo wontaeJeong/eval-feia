@@ -69,6 +69,18 @@ def scan_secrets(text: str) -> list[str]:
     return [pattern.pattern for pattern in SECRET_PATTERNS if pattern.search(text)]
 
 
+def try_autogen_load(data: Any) -> bool | None:
+    if importlib.util.find_spec("autogen_agentchat") is None and importlib.util.find_spec("autogen_core") is None:
+        return None
+    try:
+        from autogen_core import ComponentModel  # type: ignore[import-not-found]
+
+        ComponentModel.model_validate(data)
+        return True
+    except Exception:
+        return False
+
+
 def validate_worktree(worktree: Path) -> ValidationResult:
     errors: list[str] = []
     artifact = find_artifact(worktree)
@@ -102,9 +114,9 @@ def validate_worktree(worktree: Path) -> ValidationResult:
     task_ok = task_requirements_ok(data) if json_ok else False
     if json_ok and not task_ok:
         errors.append("missing task-specific web/Knox mail report behavior")
-    autogen_load_ok = None
-    if importlib.util.find_spec("autogen_agentchat") is not None:
-        autogen_load_ok = True
+    autogen_load_ok = try_autogen_load(data) if json_ok else None
+    if autogen_load_ok is False:
+        errors.append("AutoGen component config load failed")
     passed = bool(artifact and json_ok and shape_ok and secret_ok and task_ok)
     return ValidationResult(
         artifact_found=True,
