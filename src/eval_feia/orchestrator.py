@@ -148,11 +148,13 @@ class BatchRunner:
             record.server_health = health
             record.cwd_check = cwd
             record.server_restart_history = restart_history
+            record.root_session_id = session_id = ""
             self._set_phase(state, "session-create")
             session = client.create_session(title=f"eval-feia {run_id}")
             session_id = _session_id(session)
             if not session_id:
                 raise RunFailure(FailureClass.HARNESS_ERROR, "OpenCode session response did not include an id")
+            record.root_session_id = session_id
             self._set_phase(state, "sse-connect")
             listener = SSEListener(
                 run_id=run_id,
@@ -189,11 +191,16 @@ class BatchRunner:
                 children_writer=children_writer,
                 todo_writer=todo_writer,
                 live_summary=record.live_summary,
+                record=record,
             )
             listener.stop()
             self._collect_diff(client, session_id, run_dir, worktree_info.path)
             validation = validate_worktree(worktree_info.path, run_dir / "validation.json")
             record.validation = validation
+            test_result = subprocess.run(["uv", "run", "pytest"], cwd=worktree_info.path, check=False, capture_output=True, text=True)
+            (run_dir / "artifacts" / "pytest.stdout.log").write_text(test_result.stdout, encoding="utf-8")
+            (run_dir / "artifacts" / "pytest.stderr.log").write_text(test_result.stderr, encoding="utf-8")
+            record.test_exit_code = test_result.returncode
             total_ms = int((time.monotonic() - operational_start) * 1000)
             record.metrics = compute_metrics(
                 run_dir=run_dir,
@@ -208,11 +215,18 @@ class BatchRunner:
                 timeout=False,
                 harness_error=False,
             )
-            if validation.validation_passed:
+            tests_ok = test_result.returncode in (0, 5)
+            if validation.validation_passed and tests_ok and (run_dir / "diff.patch").exists():
                 record.status = "completed"
                 record.failure_class = FailureClass.NONE
                 self._set_phase(state, "completed")
                 self.emitter.emit({"type": "run_completed", "run_id": run_id, "status": "completed"})
+            elif validation.validation_passed and not tests_ok:
+                record.status = "failed"
+                record.failure_class = FailureClass.AGENT_FAILURE
+                record.error_message = "agent done but tests failed"
+                self._set_phase(state, "test-failed", record.error_message)
+                self.emitter.emit({"type": "run_failed", "run_id": run_id, "failure_class": record.failure_class})
             else:
                 record.status = "failed"
                 record.failure_class = FailureClass.VALIDATION_FAILURE
@@ -436,15 +450,17 @@ class BatchRunner:
         children_writer: JsonlWriter,
         todo_writer: JsonlWriter,
         live_summary: LiveSummary,
+        record: RunRecord,
     ) -> int:
         started = time.monotonic()
-        last_activity = time.monotonic()
+        stable_polls = 0
+        last_graph: tuple[str, ...] | None = None
         while True:
             if time.monotonic() - started > self.options.hard_timeout_seconds:
                 self._set_phase(state, "timeout")
-                raise RunFailure(FailureClass.TIMEOUT, "run hard timeout exceeded")
+                raise RunFailure(FailureClass.TIMEOUT, f"run hard timeout exceeded root_session_id={session_id} child_session_ids={record.child_session_ids} non_idle_sessions={record.non_idle_sessions} elapsed_time={int(time.monotonic()-started)}")
             status = client.get_session_status()
-            children = client.get_session_children(session_id)
+            children = self._collect_descendants(client, session_id)
             todos = client.get_session_todo(session_id)
             live_summary.total_status_polls += 1
             live_summary.total_children_polls += 1
@@ -452,19 +468,46 @@ class BatchRunner:
             status_writer.write({"type": "status_snapshot", "run_id": run_id, "status": status})
             children_writer.write({"type": "children_snapshot", "run_id": run_id, "items": children})
             todo_writer.write({"type": "todo_snapshot", "run_id": run_id, "items": todos})
-            state.child_session_count = max(state.child_session_count, len(children))
+            child_ids = [_session_id(item) for item in children if isinstance(item, dict)]
+            child_ids = [cid for cid in child_ids if cid]
+            record.child_session_ids = sorted(set(record.child_session_ids).union(child_ids))
+            state.child_session_count = max(state.child_session_count, len(record.child_session_ids))
             state.todo_status = todo_status(todos)
-            busy = _status_busy(status) or _todo_busy(todos)
-            if busy:
-                last_activity = time.monotonic()
-            if listener.last_event_monotonic and listener.last_event_monotonic > last_activity:
-                last_activity = listener.last_event_monotonic
-            quiet = time.monotonic() - last_activity
+            graph = tuple(sorted([session_id, *record.child_session_ids]))
+            if graph != last_graph:
+                stable_polls = 0
+                last_graph = graph
+            non_idle = _non_idle_sessions(status, graph)
+            record.non_idle_sessions = non_idle
+            busy = bool(non_idle) or _todo_busy(todos)
+            quiet = stable_polls * self.options.health_poll_interval_seconds
             state.quiet_seconds = quiet
             self._set_phase(state, "running" if busy else "idle-wait")
-            if not busy and quiet >= self.options.idle_quiet_seconds:
+            if not busy:
+                stable_polls += 1
+            else:
+                stable_polls = 0
+            required_stable_polls = max(2, int(self.options.idle_quiet_seconds / max(0.01, self.options.health_poll_interval_seconds)))
+            if not busy and stable_polls >= required_stable_polls:
                 return int(quiet * 1000)
             time.sleep(min(0.5, max(0.05, self.options.health_poll_interval_seconds)))
+
+    def _collect_descendants(self, client: OpenCodeClient, root_session_id: str) -> list[dict[str, Any]]:
+        queue = [root_session_id]
+        seen: set[str] = set()
+        all_children: list[dict[str, Any]] = []
+        while queue:
+            parent = queue.pop(0)
+            if parent in seen:
+                continue
+            seen.add(parent)
+            children = client.get_session_children(parent)
+            for child in children:
+                all_children.append(child)
+                cid = _session_id(child)
+                if cid:
+                    queue.append(cid)
+        return all_children
 
     def _collect_diff(self, client: OpenCodeClient, session_id: str, run_dir: Path, worktree: Path) -> None:
         diff_path = run_dir / "diff.patch"
@@ -540,6 +583,18 @@ def _status_busy(status: Any) -> bool:
 
 def _todo_busy(todos: list[dict[str, Any]]) -> bool:
     return any(str(item.get("status", "")).lower() in {"pending", "in_progress", "running"} for item in todos)
+
+
+def _non_idle_sessions(status_map: Any, session_ids: tuple[str, ...]) -> list[str]:
+    if not isinstance(status_map, dict):
+        return list(session_ids)
+    non_idle: list[str] = []
+    for sid in session_ids:
+        raw = status_map.get(sid, {})
+        text = json.dumps(raw, ensure_ascii=False).lower() if not isinstance(raw, str) else raw.lower()
+        if not any(word in text for word in ("idle", "completed", "done")):
+            non_idle.append(sid)
+    return non_idle
 
 
 def run_batch(options: RunOptions, *, display: RichLiveDisplay | None = None) -> BatchResult:
