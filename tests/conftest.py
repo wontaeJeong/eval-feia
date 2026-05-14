@@ -38,6 +38,9 @@ class FakeOpenCodeState:
         self.starts = 0
         self.stops = 0
         self.lock = threading.Lock()
+        self.poll_count = 0
+        self.status_sequence: list[dict[str, Any]] = [{"session-1": {"status": "idle"}}]
+        self.children_sequence: list[list[dict[str, Any]]] = [[]]
 
     def start_attempt(self, cwd: Path) -> int:
         with self.lock:
@@ -125,9 +128,12 @@ class FakeOpenCodeServer:
                 elif self.path == "/project/current":
                     self._json({"project": {"path": state.cwd()}})
                 elif self.path == "/session/status":
-                    self._json({"session-1": {"status": "idle"}})
+                    idx = min(state.poll_count, len(state.status_sequence) - 1)
+                    self._json(state.status_sequence[idx])
                 elif self.path.endswith("/children"):
-                    self._json([])
+                    idx = min(state.poll_count, len(state.children_sequence) - 1)
+                    self._json(state.children_sequence[idx])
+                    state.poll_count += 1
                 elif self.path.endswith("/todo"):
                     self._json([{"content": "draft report", "status": "completed"}])
                 elif self.path.endswith("/message"):

@@ -45,6 +45,14 @@ Responsibilities:
 - validate output
 - write artifacts
 
+Session/worktree model:
+
+- One isolated worktree is created per EvalJob/AgentRun.
+- One root OpenCode session is created per EvalJob/AgentRun.
+- Child sessions under that root are treated as subagent/background Task work.
+- Worktree isolation and OpenCode server lifecycle are separate concerns.
+- MVP can run serve-per-worktree, and can later extend to warm server pools while keeping root_session_id tracking.
+
 ### OpenCode client
 
 Thin HTTP client for OpenCode server.

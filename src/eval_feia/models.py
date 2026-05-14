@@ -190,6 +190,10 @@ class RunRecord:
     validation: ValidationResult = field(default_factory=ValidationResult)
     started_at: str = field(default_factory=now_iso)
     completed_at: str | None = None
+    root_session_id: str | None = None
+    child_session_ids: list[str] = field(default_factory=list)
+    non_idle_sessions: list[str] = field(default_factory=list)
+    test_exit_code: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return json_safe(self)

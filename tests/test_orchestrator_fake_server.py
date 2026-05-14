@@ -121,3 +121,37 @@ def test_restart_exhaustion_fails_without_prompt(tmp_path: Path, git_repo: Path)
     assert result.failed_count == 1
     assert state.prompts == []
     assert result.records[0].failure_class == "server_restart_exhausted"
+
+
+def test_root_idle_but_child_running_not_done(tmp_path: Path, git_repo: Path) -> None:
+    state = FakeOpenCodeState()
+    state.children_sequence = [[{"id": "child-1"}], [{"id": "child-1"}], [{"id": "child-1"}], []]
+    state.status_sequence = [
+        {"session-1": {"status": "idle"}, "child-1": {"status": "running"}},
+        {"session-1": {"status": "idle"}, "child-1": {"status": "running"}},
+        {"session-1": {"status": "idle"}, "child-1": {"status": "idle"}},
+        {"session-1": {"status": "idle"}},
+    ]
+    server = FakeOpenCodeServer(state).start()
+    try:
+        runner = BatchRunner(_options(tmp_path, git_repo), process_manager=SequencedProcessManager(server, state))
+        result = runner.run()
+    finally:
+        server.stop()
+    assert result.records[0].child_session_ids == ["child-1"]
+
+
+def test_timeout_records_non_idle_sessions(tmp_path: Path, git_repo: Path) -> None:
+    options = _options(tmp_path, git_repo)
+    options.hard_timeout_seconds = 0.2
+    state = FakeOpenCodeState()
+    state.children_sequence = [[{"id": "child-1"}], [{"id": "child-1"}], [{"id": "child-1"}], [{"id": "child-1"}]]
+    state.status_sequence = [{"session-1": {"status": "idle"}, "child-1": {"status": "running"}}]
+    server = FakeOpenCodeServer(state).start()
+    try:
+        runner = BatchRunner(options, process_manager=SequencedProcessManager(server, state))
+        result = runner.run()
+    finally:
+        server.stop()
+    assert result.records[0].failure_class == "timeout"
+    assert "child-1" in (result.records[0].error_message or "")
