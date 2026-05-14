@@ -1,6 +1,7 @@
 .venv
 .venv/
 .eval-feia/
+.sisyphus/
 __pycache__/
 .pytest_cache/
 *.py[cod]
