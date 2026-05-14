@@ -1,36 +1,30 @@
-# eval-feia Zero-Base Design Pack
+# eval-feia
 
-Date: 2026-05-14
+`eval-feia` is a local, REST-only CLI evaluator for running opencode coding experiments across isolated git worktrees.
 
-This pack defines the MVP for `eval-feia`: a REST-only evaluator for opencode worktree experiments.
-
-The key decision is simple:
-
-- `eval-feia` does not start or own `opencode serve`.
-- The user starts `opencode serve` separately.
-- `eval-feia run` creates worktrees, then calls the already-running opencode HTTP server with each worktree as the effective directory context.
-- `eval-feia run` waits for execution, collects messages, diffs, status, artifacts, and local validation output, then prints and writes the final result summary automatically.
-- `eval-feia clean` removes only files and git worktrees recorded in the manifest.
-
-The MVP command surface is intentionally small:
+The server lifecycle stays external: start `opencode serve` yourself, then run evaluations against that HTTP endpoint. The MVP exposes only `run` and `clean`.
 
 ```bash
-eval-feia run --config eval-feia.yaml
-
+eval-feia run --config examples/eval-feia.yaml
 eval-feia clean --manifest .eval-feia/runs/<run-id>/manifest.json
 ```
 
-The detailed REST reference is in `docs/opencode-rest-api.md`. The implementation plan is in `docs/implementation-plan.md`. The CLI contract is in `docs/cli.md`.
+## Install For Development
 
-## Source basis
+```bash
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install -e '.[dev]'
+```
 
-This design is based on the opencode server and SDK documentation and the generated SDK/client source available from the opencode project.
+## MVP Guarantees
 
-Primary source URLs:
+- Does not start, stop, restart, dispose, or kill `opencode serve`.
+- Does not shell out to `opencode run --attach`.
+- Uses `POST /session/{id}/message` for prompt execution by default.
+- Sends worktree directory context on every worktree-specific opencode request.
+- Uses `directory=<encoded-path>` for `GET`/`HEAD` and `x-opencode-directory` for non-GET requests.
+- Creates worktrees, executes, collects, validates, summarizes, and prints the final result from `run`.
+- Deletes only manifest-recorded resources from `clean`.
 
-- https://opencode.ai/docs/server/
-- https://opencode.ai/docs/sdk/
-- https://raw.githubusercontent.com/anomalyco/opencode/dev/packages/sdk/js/src/client.ts
-- https://raw.githubusercontent.com/anomalyco/opencode/dev/packages/sdk/js/src/gen/sdk.gen.ts
-
-Because opencode publishes a live OpenAPI 3.1 spec from the running server, the implementation must also support `GET http://<host>:<port>/doc` as the local runtime source of truth for the installed opencode version.
+See `docs/` for the full product, REST, CLI, safety, and testing specs.
