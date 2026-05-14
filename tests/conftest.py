@@ -26,7 +26,14 @@ def git_repo(tmp_path: Path) -> Path:
 
 
 class FakeOpenCodeState:
-    def __init__(self, *, version_sequence: list[str] | None = None, cwd_sequence: list[str | None] | None = None):
+    def __init__(
+        self,
+        *,
+        version_sequence: list[str] | None = None,
+        cwd_sequence: list[str | None] | None = None,
+        status_sequence: list[dict[str, Any]] | None = None,
+        children_sequence: list[dict[str, list[dict[str, str]]]] | None = None,
+    ):
         self.version_sequence = version_sequence or ["1.4.6"]
         self.cwd_sequence = cwd_sequence or [None]
         self.current_attempt = 0
@@ -37,6 +44,10 @@ class FakeOpenCodeState:
         self.prompt_before_sse: list[int] = []
         self.starts = 0
         self.stops = 0
+        self.status_sequence = status_sequence or [{"session-1": {"status": "idle"}}]
+        self.children_sequence = children_sequence or [{"session-1": []}]
+        self.status_polls = 0
+        self.children_polls = 0
         self.lock = threading.Lock()
 
     def start_attempt(self, cwd: Path) -> int:
@@ -78,6 +89,16 @@ class FakeOpenCodeState:
             "termination_condition": {"type": "max_messages", "max_messages": 6},
         }
         (self.current_cwd / "team.json").write_text(json.dumps(artifact), encoding="utf-8")
+
+    def session_status(self) -> dict[str, Any]:
+        index = min(self.status_polls, len(self.status_sequence) - 1)
+        self.status_polls += 1
+        return self.status_sequence[index]
+
+    def session_children(self, session_id: str) -> list[dict[str, str]]:
+        index = min(self.children_polls, len(self.children_sequence) - 1)
+        self.children_polls += 1
+        return self.children_sequence[index].get(session_id, [])
 
 
 class FakeOpenCodeServer:
@@ -125,9 +146,10 @@ class FakeOpenCodeServer:
                 elif self.path == "/project/current":
                     self._json({"project": {"path": state.cwd()}})
                 elif self.path == "/session/status":
-                    self._json({"session-1": {"status": "idle"}})
+                    self._json(state.session_status())
                 elif self.path.endswith("/children"):
-                    self._json([])
+                    session_id = self.path.split("/")[-2]
+                    self._json(state.session_children(session_id))
                 elif self.path.endswith("/todo"):
                     self._json([{"content": "draft report", "status": "completed"}])
                 elif self.path.endswith("/message"):
