@@ -19,6 +19,12 @@ def compute_metrics(
     idle_quiet_ms: int,
     prompt_sent: bool,
     completed: bool,
+    agent_done: bool,
+    test_done: bool,
+    test_failed: bool,
+    artifact_done: bool,
+    diff_done: bool,
+    log_done: bool,
     timeout: bool,
     harness_error: bool,
 ) -> Metrics:
@@ -42,6 +48,12 @@ def compute_metrics(
     metrics.server_restart_count = restart_count
     metrics.server_ready = server_start_elapsed_ms >= 0
     metrics.prompt_sent = prompt_sent
+    metrics.agent_done = agent_done
+    metrics.test_done = test_done
+    metrics.test_failed = test_failed
+    metrics.artifact_done = artifact_done
+    metrics.diff_done = diff_done
+    metrics.log_done = log_done
     metrics.opencode_completed = completed
     metrics.timeout = timeout
     metrics.harness_error = harness_error

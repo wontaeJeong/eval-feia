@@ -21,6 +21,10 @@ class FailureClass:
     SERVER_RESTART_EXHAUSTED = "server_restart_exhausted"
     TIMEOUT = "timeout"
     HARNESS_ERROR = "harness_error"
+    ARTIFACT_FAILURE = "artifact_failure"
+    DIFF_FAILURE = "diff_failure"
+    LOG_FAILURE = "log_failure"
+    TEST_FAILURE = "test_failure"
 
 
 def now_iso() -> str:
@@ -150,6 +154,12 @@ class Metrics:
     server_restart_count: int = 0
     server_ready: bool = False
     prompt_sent: bool = False
+    agent_done: bool = False
+    test_done: bool = False
+    test_failed: bool = False
+    artifact_done: bool = False
+    diff_done: bool = False
+    log_done: bool = False
     opencode_completed: bool = False
     timeout: bool = False
     harness_error: bool = False
@@ -187,6 +197,17 @@ class RunRecord:
     server_restart_history: list[dict[str, Any]] = field(default_factory=list)
     live_summary: LiveSummary = field(default_factory=LiveSummary)
     metrics: Metrics = field(default_factory=Metrics)
+    gates: dict[str, bool] = field(
+        default_factory=lambda: {
+            "prompt_sent": False,
+            "agent_done": False,
+            "test_done": False,
+            "test_failed": False,
+            "artifact_done": False,
+            "diff_done": False,
+            "log_done": False,
+        }
+    )
     validation: ValidationResult = field(default_factory=ValidationResult)
     started_at: str = field(default_factory=now_iso)
     completed_at: str | None = None

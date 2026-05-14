@@ -124,6 +124,12 @@ class BatchRunner:
         self._set_phase(state, "worktree")
         process: ServerProcess | None = None
         prompt_sent = False
+        agent_done = False
+        test_done = False
+        test_failed = False
+        artifact_done = False
+        diff_done = False
+        log_done = False
         operational_start = time.monotonic()
         server_start_elapsed_ms = -1
         idle_quiet_ms = 0
@@ -177,6 +183,7 @@ class BatchRunner:
             events_writer.write({"type": "prompt_request", "run_id": run_id, "session_id": session_id, "agent": self.options.skill})
             client.send_prompt_async(session_id, payload)
             prompt_sent = True
+            record.gates["prompt_sent"] = True
             record.live_summary.prompt_sent_at = now_iso()
             self._set_phase(state, "running")
             idle_quiet_ms = self._monitor_until_idle(
@@ -191,9 +198,21 @@ class BatchRunner:
                 live_summary=record.live_summary,
             )
             listener.stop()
+            agent_done = True
+            record.gates["agent_done"] = True
             self._collect_diff(client, session_id, run_dir, worktree_info.path)
+            diff_done = True
+            record.gates["diff_done"] = True
+            self._collect_log(run_log_dir, run_dir)
+            log_done = True
+            record.gates["log_done"] = True
             validation = validate_worktree(worktree_info.path, run_dir / "validation.json")
+            artifact_done = validation.artifact_found
+            record.gates["artifact_done"] = artifact_done
             record.validation = validation
+            test_done, test_failed = self._run_tests(worktree_info.path, run_dir)
+            record.gates["test_done"] = test_done
+            record.gates["test_failed"] = test_failed
             total_ms = int((time.monotonic() - operational_start) * 1000)
             record.metrics = compute_metrics(
                 run_dir=run_dir,
@@ -204,18 +223,31 @@ class BatchRunner:
                 total_operational_ms=total_ms,
                 idle_quiet_ms=idle_quiet_ms,
                 prompt_sent=prompt_sent,
-                completed=validation.validation_passed,
+                completed=agent_done and test_done and not test_failed and artifact_done and diff_done and log_done and validation.validation_passed,
+                agent_done=agent_done,
+                test_done=test_done,
+                test_failed=test_failed,
+                artifact_done=artifact_done,
+                diff_done=diff_done,
+                log_done=log_done,
                 timeout=False,
                 harness_error=False,
             )
-            if validation.validation_passed:
+            if test_failed:
+                record.status = "test_failed"
+                record.failure_class = FailureClass.TEST_FAILURE
+                self._set_phase(state, "failed", "tests failed")
+                self.emitter.emit({"type": "run_failed", "run_id": run_id, "failure_class": record.failure_class})
+            elif validation.validation_passed and artifact_done and diff_done and log_done and agent_done:
                 record.status = "completed"
                 record.failure_class = FailureClass.NONE
                 self._set_phase(state, "completed")
                 self.emitter.emit({"type": "run_completed", "run_id": run_id, "status": "completed"})
             else:
                 record.status = "failed"
-                record.failure_class = FailureClass.VALIDATION_FAILURE
+                record.failure_class = (
+                    FailureClass.ARTIFACT_FAILURE if not artifact_done else FailureClass.VALIDATION_FAILURE
+                )
                 record.error_message = "; ".join(validation.errors)
                 self._set_phase(state, "failed", record.error_message)
                 self.emitter.emit({"type": "run_failed", "run_id": run_id, "failure_class": record.failure_class})
@@ -237,6 +269,12 @@ class BatchRunner:
                 idle_quiet_ms=idle_quiet_ms,
                 prompt_sent=prompt_sent,
                 completed=False,
+                agent_done=agent_done,
+                test_done=test_done,
+                test_failed=test_failed,
+                artifact_done=artifact_done,
+                diff_done=diff_done,
+                log_done=log_done,
                 timeout=exc.failure_class == FailureClass.TIMEOUT,
                 harness_error=exc.failure_class == FailureClass.HARNESS_ERROR,
             )
@@ -257,6 +295,12 @@ class BatchRunner:
                 idle_quiet_ms=idle_quiet_ms,
                 prompt_sent=prompt_sent,
                 completed=False,
+                agent_done=agent_done,
+                test_done=test_done,
+                test_failed=test_failed,
+                artifact_done=artifact_done,
+                diff_done=diff_done,
+                log_done=log_done,
                 timeout=False,
                 harness_error=True,
             )
@@ -479,6 +523,18 @@ class BatchRunner:
             pass
         result = subprocess.run(["git", "-C", str(worktree), "diff"], check=False, capture_output=True, text=True)
         diff_path.write_text(result.stdout, encoding="utf-8")
+
+    def _collect_log(self, run_log_dir: Path, run_dir: Path) -> None:
+        src = run_log_dir / "opencode.log"
+        dst = run_dir / "opencode.log"
+        if src.exists():
+            dst.write_text(src.read_text(encoding="utf-8", errors="replace"), encoding="utf-8")
+
+    def _run_tests(self, worktree: Path, run_dir: Path) -> tuple[bool, bool]:
+        result = subprocess.run(["uv", "run", "pytest"], cwd=worktree, check=False, capture_output=True, text=True)
+        out = (run_dir / "test-output.txt")
+        out.write_text((result.stdout or "") + "\n" + (result.stderr or ""), encoding="utf-8")
+        return True, result.returncode != 0
 
     def _on_sse_event(self, state: LiveState, event: SSEEvent) -> None:
         update_state_from_sse(state, event.type)
