@@ -32,6 +32,12 @@ Responsibilities:
 
 Owns one evaluation run.
 
+Run ownership is per EvalJob/AgentRun, not per number of worktrees.
+Each EvalJob/AgentRun has:
+
+- one isolated worktree
+- one root OpenCode session
+
 Responsibilities:
 
 - create worktree
@@ -39,6 +45,7 @@ Responsibilities:
 - perform health and cwd checks
 - restart on mismatch
 - create session
+- track root session and descendant child sessions
 - connect SSE
 - submit prompt
 - monitor execution
@@ -154,3 +161,21 @@ Responsibilities:
 Local raw logs are source of truth.
 
 Remote instrumentation data is enrichment only.
+
+## Session graph semantics
+
+The root session is the top-level session created by the orchestrator for one EvalJob/AgentRun.
+
+Child sessions under the root are treated as subagent/background work (for example, Task tool descendants).
+
+Completion requires stable idleness over the full root+descendant graph, not root-only idleness.
+
+## Separation of concerns
+
+Worktree isolation and OpenCode server lifecycle are separate concerns:
+
+- worktree isolation controls filesystem/runtime isolation
+- server lifecycle controls readiness, mismatch recovery, and session execution
+
+MVP can run one serve process per worktree.
+The architecture is extensible toward warm server pools while keeping per-run `root_session_id` tracking.
