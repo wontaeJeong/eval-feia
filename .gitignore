@@ -1,0 +1,6 @@
+.venv
+.venv/
+.eval-feia/
+__pycache__/
+.pytest_cache/
+*.py[cod]
