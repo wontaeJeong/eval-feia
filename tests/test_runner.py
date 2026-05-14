@@ -1,0 +1,283 @@
+from __future__ import annotations
+
+import json
+import io
+import subprocess
+import sys
+from pathlib import Path
+from urllib.parse import unquote
+
+import httpx
+from rich.console import Console
+
+from eval_feia.config import EvalConfig
+from eval_feia.opencode_client import DIRECTORY_HEADER, OpencodeClient
+from eval_feia.runner import run_evaluation
+
+
+def test_runner_success_collects_children_validation_and_summary(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path / "repo")
+    prompt = repo / "prompt.md"
+    prompt.write_text("Do a no-op task.\n", encoding="utf-8")
+    seen: list[httpx.Request] = []
+    health_calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal health_calls
+        seen.append(request)
+        if request.url.path == "/global/health":
+            health_calls += 1
+            if health_calls == 1:
+                return httpx.Response(503, json={"healthy": False})
+            return httpx.Response(200, json={"healthy": True, "version": "fake-1"})
+        cwd = _request_cwd(request)
+        if request.url.path == "/path":
+            return httpx.Response(200, json={"path": cwd})
+        if request.url.path in {"/project/current", "/config", "/vcs"}:
+            return httpx.Response(200, json={"ok": True})
+        if request.url.path == "/session" and request.method == "POST":
+            body = json.loads(request.content.decode())
+            assert body == {"title": "eval-feia/test-run/cand-001"}
+            return httpx.Response(200, json={"id": "ses_1", "directory": cwd})
+        if request.url.path == "/session/ses_1/message" and request.method == "POST":
+            body = json.loads(request.content.decode())
+            assert body["parts"] == [{"type": "text", "text": "Do a no-op task.\n"}]
+            assert body["agent"] == "build"
+            Path(cwd, "new-file.txt").write_text("created by fake opencode\n", encoding="utf-8")
+            return httpx.Response(200, json={"ok": True})
+        if request.url.path == "/session/ses_1":
+            return httpx.Response(200, json={"id": "ses_1", "directory": cwd})
+        if request.url.path == "/session/ses_1/message":
+            return httpx.Response(
+                200,
+                json=[{"role": "assistant", "parts": [{"type": "text", "text": "finished"}]}],
+            )
+        if request.url.path == "/session/ses_1/children":
+            return httpx.Response(200, json=[{"id": "ses_child"}])
+        if request.url.path == "/session/ses_child":
+            return httpx.Response(200, json={"id": "ses_child", "directory": cwd})
+        if request.url.path == "/session/ses_child/message":
+            return httpx.Response(200, json=[])
+        if request.url.path == "/session/ses_child/children":
+            return httpx.Response(200, json=[])
+        if request.url.path == "/session/ses_child/diff":
+            return httpx.Response(200, json={})
+        if request.url.path == "/session/ses_1/todo":
+            return httpx.Response(200, json=[])
+        if request.url.path == "/session/ses_1/diff":
+            return httpx.Response(200, json={"files": []})
+        if request.url.path == "/file/status":
+            return httpx.Response(200, json=[])
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    config = _config(
+        repo,
+        prompt,
+        candidates=1,
+        validation_command=f'"{sys.executable}" -c "print(123)"',
+    )
+    client = OpencodeClient("http://opencode.test", transport=httpx.MockTransport(handler))
+    outcome = run_evaluation(
+        config,
+        client=client,
+        console=Console(file=io.StringIO()),
+        run_id="test-run",
+    )
+
+    assert outcome.passed is True
+    assert health_calls == 2
+    result_dir = outcome.output_dir / "candidates" / "cand-001"
+    assert (result_dir / "final-output.md").read_text(encoding="utf-8") == "finished\n"
+    children = json.loads((result_dir / "children.json").read_text(encoding="utf-8"))
+    assert children[0]["id"] == "ses_child"
+    assert (outcome.output_dir / "run-summary.json").exists()
+    assert outcome.summary["candidates"][0]["summary"]["files_changed"] == 1
+    assert any(req.url.path == "/session/ses_1/message" and req.method == "POST" for req in seen)
+    assert not any("prompt_async" in req.url.path for req in seen)
+    for request in seen:
+        if request.url.path == "/global/health":
+            continue
+        if request.method == "GET":
+            assert request.url.query.decode().startswith("directory=")
+        else:
+            assert DIRECTORY_HEADER in request.headers
+
+
+def test_runner_timeout_aborts_and_collects_partial_artifacts(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path / "repo")
+    prompt = repo / "prompt.md"
+    prompt.write_text("timeout\n", encoding="utf-8")
+    aborted = False
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal aborted
+        cwd = _request_cwd(request) if request.url.path != "/global/health" else ""
+        if request.url.path == "/global/health":
+            return httpx.Response(200, json={"healthy": True, "version": "fake"})
+        if request.url.path in {"/path", "/project/current", "/config", "/vcs"}:
+            return httpx.Response(200, json={"path": cwd})
+        if request.url.path == "/session" and request.method == "POST":
+            return httpx.Response(200, json={"id": "ses_timeout", "directory": cwd})
+        if request.url.path == "/session/ses_timeout/message" and request.method == "POST":
+            raise httpx.ReadTimeout("simulated timeout", request=request)
+        if request.url.path == "/session/ses_timeout/abort":
+            aborted = True
+            return httpx.Response(204)
+        if request.url.path == "/session/status":
+            return httpx.Response(200, json={"ses_timeout": {"type": "idle"}})
+        if request.url.path == "/session/ses_timeout":
+            return httpx.Response(200, json={"id": "ses_timeout", "directory": cwd})
+        if request.url.path == "/session/ses_timeout/message":
+            return httpx.Response(200, json=[])
+        if request.url.path == "/session/ses_timeout/children":
+            return httpx.Response(200, json=[])
+        if request.url.path == "/session/ses_timeout/todo":
+            return httpx.Response(200, json=[])
+        if request.url.path == "/session/ses_timeout/diff":
+            return httpx.Response(200, json={})
+        if request.url.path == "/file/status":
+            return httpx.Response(200, json=[])
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    config = _config(repo, prompt, timeout_seconds=0.01)
+    client = OpencodeClient("http://opencode.test", transport=httpx.MockTransport(handler))
+    outcome = run_evaluation(
+        config,
+        client=client,
+        console=Console(file=io.StringIO()),
+        run_id="timeout-run",
+    )
+    assert outcome.passed is False
+    assert aborted is True
+    error = json.loads(
+        (outcome.output_dir / "candidates" / "cand-001" / "error.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert error["kind"] == "timeout"
+
+
+def test_runner_required_validation_failure_fails_candidate(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path / "repo")
+    prompt = repo / "prompt.md"
+    prompt.write_text("validate\n", encoding="utf-8")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        cwd = _request_cwd(request) if request.url.path != "/global/health" else ""
+        if request.url.path == "/global/health":
+            return httpx.Response(200, json={"healthy": True, "version": "fake"})
+        if request.url.path in {"/path", "/project/current", "/config", "/vcs"}:
+            return httpx.Response(200, json={"path": cwd})
+        if request.url.path == "/session" and request.method == "POST":
+            return httpx.Response(200, json={"id": "ses_1", "directory": cwd})
+        if request.url.path == "/session/ses_1/message" and request.method == "POST":
+            return httpx.Response(200, json={"ok": True})
+        if request.url.path == "/session/ses_1":
+            return httpx.Response(200, json={"id": "ses_1", "directory": cwd})
+        if request.url.path == "/session/ses_1/message":
+            return httpx.Response(200, json=[])
+        if request.url.path == "/session/ses_1/children":
+            return httpx.Response(200, json=[])
+        if request.url.path == "/session/ses_1/todo":
+            return httpx.Response(200, json=[])
+        if request.url.path == "/session/ses_1/diff":
+            return httpx.Response(200, json={})
+        if request.url.path == "/file/status":
+            return httpx.Response(200, json=[])
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    config = _config(
+        repo,
+        prompt,
+        validation_command=f'"{sys.executable}" -c "import sys; sys.exit(7)"',
+    )
+    client = OpencodeClient("http://opencode.test", transport=httpx.MockTransport(handler))
+    outcome = run_evaluation(
+        config,
+        client=client,
+        console=Console(file=io.StringIO()),
+        run_id="validation-run",
+    )
+    assert outcome.passed is False
+    result = json.loads(
+        (outcome.output_dir / "candidates" / "cand-001" / "result.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert result["error"]["kind"] == "validation_failed"
+
+
+def _config(
+    repo: Path,
+    prompt: Path,
+    *,
+    candidates: int = 1,
+    timeout_seconds: float = 5,
+    validation_command: str | None = None,
+) -> EvalConfig:
+    validation = {"commands": []}
+    if validation_command:
+        validation = {
+            "commands": [
+                {
+                    "name": "check",
+                    "command": validation_command,
+                    "timeout_seconds": 5,
+                    "required": True,
+                }
+            ]
+        }
+    return EvalConfig.model_validate(
+        {
+            "server": {"url": "http://opencode.test", "health_retries": 3, "health_interval_ms": 1},
+            "repo": {
+                "path": repo,
+                "base_ref": "HEAD",
+                "worktree_root": repo / ".eval-feia" / "worktrees",
+            },
+            "run": {
+                "output_root": repo / ".eval-feia" / "runs",
+                "candidates": candidates,
+                "concurrency": min(candidates, 2),
+                "timeout_seconds": timeout_seconds,
+                "prompt_file": prompt,
+                "agent": "build",
+                "model": None,
+            },
+            "validation": validation,
+            "summary": {},
+        }
+    )
+
+
+def _request_cwd(request: httpx.Request) -> str:
+    if request.method == "GET":
+        query = request.url.query.decode()
+        assert query.startswith("directory=")
+        return unquote(query.split("=", 1)[1])
+    assert DIRECTORY_HEADER in request.headers
+    return unquote(request.headers[DIRECTORY_HEADER])
+
+
+def _init_repo(path: Path) -> Path:
+    path.mkdir(parents=True)
+    subprocess.run(["git", "init"], cwd=path, check=True, capture_output=True, text=True)
+    (path / "README.md").write_text("hello\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=path, check=True, capture_output=True, text=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=eval-feia",
+            "-c",
+            "user.email=eval-feia@example.test",
+            "commit",
+            "-m",
+            "init",
+        ],
+        cwd=path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return path.resolve()
