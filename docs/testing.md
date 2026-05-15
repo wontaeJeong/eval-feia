@@ -41,10 +41,12 @@ Verify:
 - runtime model accepts eval-specific `branch_name` and `label`
 - `run.candidates` plus `run.prompt_file` model inputs still work
 - label falls back to eval id and then index-based candidate id
-- missing branch names fall back to safe `eval/<id>` names
+- missing branch names fall back to safe `eval/<run-id>/<id>` names
 - sanitized branch names pass `git check-ref-format --branch`
 - duplicate requested branches resolve to unique actual `branch_name` values
 - candidate `result.json` and `run-summary.json` record the actual resolved branch name
+- generated worktree paths use the run directory plus candidate-id leaf, not repeated base
+  ref/SHA/branch metadata
 
 ### Runner behavior
 
