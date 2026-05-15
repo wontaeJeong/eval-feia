@@ -135,6 +135,19 @@ Recommended output layout:
           ...
 ```
 
+Generated worktrees use the matching compact layout:
+
+```text
+.eval-feia/
+  worktrees/
+    20260514-123456-a1b2c3/
+      cand-001/
+      cand-002/
+```
+
+The branch carries run-scoped uniqueness (`eval/<run-id>/<candidate>`), while base ref and
+base SHA stay in manifest and result metadata.
+
 ## Failure model
 
 A candidate can fail independently. The whole run fails only when preflight fails or the tool cannot create the run manifest safely.
