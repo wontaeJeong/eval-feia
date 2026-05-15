@@ -349,6 +349,7 @@ def _execute_candidate(
             worktree,
             session_id,
             prompt,
+            command=config.run.command,
             agent=config.run.agent,
             model=_model_dict(config.run.model),
             timeout=config.run.timeout_seconds,

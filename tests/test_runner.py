@@ -103,6 +103,63 @@ def test_runner_success_collects_children_validation_and_summary(tmp_path: Path)
             assert DIRECTORY_HEADER in request.headers
 
 
+def test_runner_command_posts_command_endpoint(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path / "repo")
+    prompt = repo / "prompt.md"
+    prompt.write_text("git status 확인해줘", encoding="utf-8")
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        cwd = _request_cwd(request) if request.url.path != "/global/health" else ""
+        if request.url.path == "/global/health":
+            return httpx.Response(200, json={"healthy": True, "version": "fake"})
+        if request.url.path in {"/path", "/project/current", "/config", "/vcs"}:
+            return httpx.Response(200, json={"path": cwd})
+        if request.url.path == "/session" and request.method == "POST":
+            return httpx.Response(200, json={"id": "ses_1", "directory": cwd})
+        if request.url.path == "/session/ses_1/command" and request.method == "POST":
+            body = json.loads(request.content.decode())
+            assert body == {
+                "agent": "build",
+                "arguments": "git status 확인해줘",
+                "command": "bash",
+                "model": "p/m",
+            }
+            assert "parts" not in body
+            Path(cwd, "command-output.txt").write_text("created by fake command\n", encoding="utf-8")
+            return httpx.Response(200, json={"ok": True})
+        if request.url.path == "/session/ses_1":
+            return httpx.Response(200, json={"id": "ses_1", "directory": cwd})
+        if request.url.path == "/session/ses_1/message":
+            return httpx.Response(
+                200,
+                json=[{"role": "assistant", "parts": [{"type": "text", "text": "command done"}]}],
+            )
+        if request.url.path == "/session/ses_1/children":
+            return httpx.Response(200, json=[])
+        if request.url.path == "/session/ses_1/todo":
+            return httpx.Response(200, json=[])
+        if request.url.path == "/session/ses_1/diff":
+            return httpx.Response(200, json={})
+        if request.url.path == "/file/status":
+            return httpx.Response(200, json=[])
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    config = _config(repo, prompt, command="/bash", model={"providerID": "p", "modelID": "m"})
+    client = OpencodeClient("http://opencode.test", transport=httpx.MockTransport(handler))
+    outcome = run_evaluation(
+        config,
+        client=client,
+        console=Console(file=io.StringIO()),
+        run_id="command-run",
+    )
+
+    assert outcome.passed is True
+    assert any(req.url.path == "/session/ses_1/command" and req.method == "POST" for req in seen)
+    assert not any(req.url.path == "/session/ses_1/message" and req.method == "POST" for req in seen)
+
+
 def test_runner_timeout_aborts_and_collects_partial_artifacts(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path / "repo")
     prompt = repo / "prompt.md"
@@ -325,6 +382,8 @@ def _config(
     *,
     candidates: int = 1,
     timeout_seconds: float = 5,
+    command: str | None = None,
+    model: dict[str, str] | None = None,
     validation_command: str | None = None,
 ) -> EvalConfig:
     validation = {"commands": []}
@@ -358,7 +417,8 @@ def _config(
                 "timeout_seconds": timeout_seconds,
                 "prompt_file": prompt,
                 "agent": "build",
-                "model": None,
+                "model": model,
+                "command": command,
             },
             "validation": validation,
             "summary": {},
