@@ -42,6 +42,8 @@ The command prints:
 
 - server health/version
 - run ID
+- repository path, base ref/SHA, output directory, worktree root, execution mode, and
+  validation command count
 - generated worktree paths
 - eval id, display label, branch name, base ref/SHA, and worktree path
 - per-candidate session IDs
