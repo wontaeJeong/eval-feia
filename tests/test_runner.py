@@ -207,6 +207,118 @@ def test_runner_required_validation_failure_fails_candidate(tmp_path: Path) -> N
     assert result["error"]["kind"] == "validation_failed"
 
 
+def test_runner_records_resolved_branch_names_labels_and_worktrees(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path / "repo")
+    sessions: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        cwd = _request_cwd(request) if request.url.path != "/global/health" else ""
+        if request.url.path == "/global/health":
+            return httpx.Response(200, json={"healthy": True, "version": "fake"})
+        if request.url.path in {"/path", "/project/current", "/config", "/vcs"}:
+            return httpx.Response(200, json={"path": cwd})
+        if request.url.path == "/session" and request.method == "POST":
+            session_id = f"ses_{len(sessions) + 1}"
+            sessions[session_id] = cwd
+            return httpx.Response(200, json={"id": session_id, "directory": cwd})
+        if request.url.path.endswith("/message") and request.method == "POST":
+            return httpx.Response(200, json={"ok": True})
+
+        parts = request.url.path.strip("/").split("/")
+        if len(parts) >= 2 and parts[0] == "session":
+            session_id = parts[1]
+            if len(parts) == 2:
+                return httpx.Response(200, json={"id": session_id, "directory": cwd})
+            if len(parts) == 3 and parts[2] == "message":
+                return httpx.Response(200, json=[])
+            if len(parts) == 3 and parts[2] in {"children", "todo"}:
+                return httpx.Response(200, json=[])
+            if len(parts) == 3 and parts[2] == "diff":
+                return httpx.Response(200, json={})
+        if request.url.path == "/file/status":
+            return httpx.Response(200, json=[])
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    config = EvalConfig.model_validate(
+        {
+            "server": {"url": "http://opencode.test", "health_retries": 1},
+            "repo": {
+                "path": repo,
+                "base_ref": "HEAD",
+                "worktree_root": repo / ".eval-feia" / "worktrees",
+            },
+            "run": {
+                "output_root": repo / ".eval-feia" / "runs",
+                "concurrency": 1,
+                "timeout_seconds": 5,
+            },
+            "evals": [
+                {
+                    "id": "one",
+                    "prompt": "first",
+                    "branch_name": "eval/duplicate",
+                    "label": "first label",
+                },
+                {
+                    "id": "two",
+                    "prompt": "second",
+                    "branch_name": "eval/duplicate",
+                    "label": "second label",
+                },
+            ],
+            "validation": {"commands": []},
+            "summary": {},
+        }
+    )
+    output = io.StringIO()
+    client = OpencodeClient("http://opencode.test", transport=httpx.MockTransport(handler))
+
+    outcome = run_evaluation(
+        config,
+        client=client,
+        console=Console(file=output),
+        run_id="branch-run",
+    )
+
+    assert outcome.passed is True
+    candidates = outcome.summary["candidates"]
+    assert candidates[0]["eval_id"] == "one"
+    assert candidates[0]["label"] == "first label"
+    assert candidates[0]["requested_branch_name"] == "eval/duplicate"
+    assert candidates[0]["branch_name"] == "eval/duplicate"
+    assert candidates[0]["worktree_path"].endswith("eval-duplicate")
+    assert candidates[1]["eval_id"] == "two"
+    assert candidates[1]["label"] == "second label"
+    assert candidates[1]["requested_branch_name"] == "eval/duplicate"
+    assert candidates[1]["branch_name"] == "eval/duplicate-2"
+    assert candidates[1]["worktree_path"].endswith("eval-duplicate-2")
+
+    result = json.loads(
+        (outcome.output_dir / "candidates" / "two" / "result.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert result["label"] == "second label"
+    assert result["requested_branch_name"] == "eval/duplicate"
+    assert result["branch_name"] == "eval/duplicate-2"
+    assert result["worktree_path"] == candidates[1]["worktree_path"]
+
+    summary = json.loads(
+        (outcome.output_dir / "run-summary.json").read_text(encoding="utf-8")
+    )
+    assert summary["candidates"][1]["branch_name"] == "eval/duplicate-2"
+    manifest = json.loads(
+        (outcome.output_dir / "manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest["candidates"][1]["branch_name"] == "eval/duplicate-2"
+    assert "[1/2] candidate: one" in output.getvalue()
+    assert "[1/2] eval: one" in output.getvalue()
+    assert "[1/2] label: first label" in output.getvalue()
+    assert "[2/2] candidate: two" in output.getvalue()
+    assert "[2/2] requested branch: eval/duplicate" in output.getvalue()
+    assert "[2/2] resolved branch: eval/duplicate-2" in output.getvalue()
+
+
 def _config(
     repo: Path,
     prompt: Path,
@@ -229,7 +341,11 @@ def _config(
         }
     return EvalConfig.model_validate(
         {
-            "server": {"url": "http://opencode.test", "health_retries": 3, "health_interval_ms": 1},
+            "server": {
+                "url": "http://opencode.test",
+                "health_retries": 3,
+                "health_interval_ms": 1,
+            },
             "repo": {
                 "path": repo,
                 "base_ref": "HEAD",

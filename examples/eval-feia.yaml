@@ -20,6 +20,16 @@ run:
   model: null
   delete_sessions_after_collect: false
 
+evals:
+  - id: command-body-test
+    prompt: "Run the command body evaluation described in the shared prompt context."
+    branch_name: "eval/command-body-test"
+    label: "command body test"
+  - id: attach-healthcheck
+    prompt: "Run the attach healthcheck evaluation described in the shared prompt context."
+    branch_name: "eval/attach-healthcheck"
+    label: "attach healthcheck"
+
 validation:
   commands:
     - name: "tests"
