@@ -99,9 +99,9 @@ def test_clean_removes_dirty_git_worktree_without_force(tmp_path: Path) -> None:
     manifest = _manifest_for_repo(repo)
     worktree = manager.create_branch_worktree(
         manifest.worktree_root,
-        "HEAD-abc123-eval-cand-001",
+        "cand-001",
         "HEAD",
-        "eval/cand-001",
+        "eval/run-1/cand-001",
     )
     manifest.candidates[0].worktree_path = worktree.path
     worktree.path.joinpath("dirty.txt").write_text("dirty\n", encoding="utf-8")

@@ -383,19 +383,18 @@ def test_runner_records_resolved_branch_names_labels_and_worktrees(tmp_path: Pat
 
     assert outcome.passed is True
     candidates = outcome.summary["candidates"]
-    source_prefix = f"HEAD-{outcome.summary['repo']['base_sha'][:8]}"
     assert candidates[0]["eval_id"] == "one"
     assert candidates[0]["label"] == "first label"
     assert candidates[0]["base_ref"] == "HEAD"
     assert candidates[0]["base_sha"] == outcome.summary["repo"]["base_sha"]
     assert candidates[0]["requested_branch_name"] == "eval/duplicate"
-    assert candidates[0]["branch_name"] == "eval/duplicate"
-    assert Path(candidates[0]["worktree_path"]).name == f"{source_prefix}-eval-duplicate"
+    assert candidates[0]["branch_name"] == "eval/branch-run/duplicate"
+    assert Path(candidates[0]["worktree_path"]).name == "one"
     assert candidates[1]["eval_id"] == "two"
     assert candidates[1]["label"] == "second label"
     assert candidates[1]["requested_branch_name"] == "eval/duplicate"
-    assert candidates[1]["branch_name"] == "eval/duplicate-2"
-    assert Path(candidates[1]["worktree_path"]).name == f"{source_prefix}-eval-duplicate-2"
+    assert candidates[1]["branch_name"] == "eval/branch-run/duplicate-2"
+    assert Path(candidates[1]["worktree_path"]).name == "two"
 
     result = json.loads(
         (outcome.output_dir / "candidates" / "two" / "result.json").read_text(
@@ -406,23 +405,31 @@ def test_runner_records_resolved_branch_names_labels_and_worktrees(tmp_path: Pat
     assert result["base_ref"] == "HEAD"
     assert result["base_sha"] == outcome.summary["repo"]["base_sha"]
     assert result["requested_branch_name"] == "eval/duplicate"
-    assert result["branch_name"] == "eval/duplicate-2"
+    assert result["branch_name"] == "eval/branch-run/duplicate-2"
     assert result["worktree_path"] == candidates[1]["worktree_path"]
 
     summary = json.loads(
         (outcome.output_dir / "run-summary.json").read_text(encoding="utf-8")
     )
-    assert summary["candidates"][1]["branch_name"] == "eval/duplicate-2"
+    assert summary["candidates"][1]["branch_name"] == "eval/branch-run/duplicate-2"
     manifest = json.loads(
         (outcome.output_dir / "manifest.json").read_text(encoding="utf-8")
     )
-    assert manifest["candidates"][1]["branch_name"] == "eval/duplicate-2"
+    assert manifest["candidates"][1]["branch_name"] == "eval/branch-run/duplicate-2"
+    assert "run id: branch-run" in output.getvalue()
+    assert "base ref: HEAD (" in output.getvalue()
+    assert "worktree root:" in output.getvalue()
+    assert "candidates: 2; concurrency: 1" in output.getvalue()
+    assert "opencode request: message" in output.getvalue()
+    assert "validation commands: 0" in output.getvalue()
     assert "[1/2] candidate: one" in output.getvalue()
     assert "[1/2] eval: one" in output.getvalue()
     assert "[1/2] label: first label" in output.getvalue()
+    assert "[1/2] requested branch: eval/duplicate" in output.getvalue()
+    assert "[1/2] resolved branch: eval/branch-run/duplicate" in output.getvalue()
     assert "[2/2] candidate: two" in output.getvalue()
     assert "[2/2] requested branch: eval/duplicate" in output.getvalue()
-    assert "[2/2] resolved branch: eval/duplicate-2" in output.getvalue()
+    assert "[2/2] resolved branch: eval/branch-run/duplicate-2" in output.getvalue()
 
 
 def test_health_retry_uses_dedicated_timeout() -> None:
