@@ -34,13 +34,13 @@ Verify:
 - clean removes only manifest paths
 - dry-run does not delete
 
-### Eval labels and branch names
+### Run labels and branch names
 
 Verify:
 
-- runtime model accepts eval-specific `branch_name` and `label`
+- runtime model accepts run-level `label` and eval-specific `branch_name`
 - `run.candidates` plus `run.prompt_file` model inputs still work
-- label falls back to eval id and then index-based candidate id
+- run label is printed and recorded once, not repeated per candidate
 - missing branch names fall back to safe `eval/<run-id>/<id>` names
 - sanitized branch names pass `git check-ref-format --branch`
 - duplicate requested branches resolve to unique actual `branch_name` values
