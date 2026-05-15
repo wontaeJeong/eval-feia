@@ -2,12 +2,12 @@
 
 ## Preflight
 
-1. Load config.
+1. Build runtime config from CLI arguments.
 2. Resolve repo path, prompt path, output root, worktree root.
 3. Check git repository.
 4. Check base ref.
 5. Read prompt file.
-6. Health check opencode server with retries:
+6. Health check opencode server with retries. The default preflight budget is 10 attempts, 500ms between attempts, and a 2s timeout per health request:
 
 ```http
 GET /global/health
@@ -22,15 +22,16 @@ opencode version: <version>
 
 ## Worktree setup
 
-For `N` candidates or top-level `evals` entries:
+For `N` candidates or programmatic eval entries:
 
 ```bash
 git worktree add -b <resolved-branch-name> <worktree-path> <base-ref>
 ```
 
-Each eval can request a `branch_name` and `label`. `label` is display-only. `branch_name`
-is sanitized, validated with `git check-ref-format --branch`, and resolved to a unique branch
-if the requested branch or worktree path already exists.
+Each candidate gets a generated branch name. The name is sanitized, validated with
+`git check-ref-format --branch`, and resolved to a unique branch if the requested branch or
+worktree path already exists. Worktree directory names include the base ref and short base
+SHA before the generated branch slug.
 
 Print each resolved value immediately:
 
@@ -38,9 +39,8 @@ Print each resolved value immediately:
 [1/3] candidate: command-body-test
 [1/3] eval: command-body-test
 [1/3] label: command body test
-[1/3] requested branch: eval/command-body-test
-[1/3] resolved branch: eval/command-body-test-2
-[1/3] worktree: /abs/path/.eval-feia/worktrees/<run-id>/eval-command-body-test-2
+[1/3] branch: eval/command-body-test
+[1/3] worktree: /abs/path/.eval-feia/worktrees/<run-id>/HEAD-abc12345-eval-command-body-test
 ```
 
 Record each worktree and its actual branch name in `manifest.json` as soon as it is created.
@@ -143,5 +143,5 @@ cand-002  | attach healthcheck | eval/bar       | failed | failed     | 2     | 
 ```
 
 Also write `run-summary.md` and `run-summary.json`. JSON candidate records include
-`eval_id`, `label`, `requested_branch_name`, `branch_name`, `worktree_path`, `session_id`,
+`eval_id`, `label`, `base_ref`, `base_sha`, `branch_name`, `worktree_path`, `session_id`,
 and `status`; `branch_name` is the branch actually created or used after suffix resolution.

@@ -25,9 +25,9 @@
       "id": "command-body-test",
       "eval_id": "command-body-test",
       "label": "command body test",
-      "requested_branch_name": "eval/command-body-test",
-      "branch_name": "eval/command-body-test-2",
-      "worktree_path": "/abs/path/repo/.eval-feia/worktrees/20260514-123456-a1b2c3/eval-command-body-test-2",
+      "requested_branch_name": null,
+      "branch_name": "eval/command-body-test",
+      "worktree_path": "/abs/path/repo/.eval-feia/worktrees/20260514-123456-a1b2c3/HEAD-abc12345-eval-command-body-test",
       "result_dir": "/abs/path/repo/.eval-feia/runs/20260514-123456-a1b2c3/candidates/command-body-test",
       "session_id": "ses_...",
       "status": "completed"
@@ -36,9 +36,10 @@
 }
 ```
 
-`requested_branch_name` is the user-provided value, if any. `branch_name` is the Git branch
-actually created for the worktree after sanitization and collision suffixing. `label` is a
-display value only and must not be used directly as a path or Git ref.
+`branch_name` is the Git branch actually created for the worktree after sanitization and
+collision suffixing. `label` is a display value only and must not be used directly as a path
+or Git ref. Worktree directory names include the base ref and short base SHA for quick
+inspection from the filesystem.
 
 ## Candidate result
 
@@ -47,10 +48,12 @@ display value only and must not be used directly as a path or Git ref.
   "candidate_id": "command-body-test",
   "eval_id": "command-body-test",
   "label": "command body test",
-  "requested_branch_name": "eval/command-body-test",
-  "branch_name": "eval/command-body-test-2",
+  "base_ref": "HEAD",
+  "base_sha": "abc12345...",
+  "requested_branch_name": null,
+  "branch_name": "eval/command-body-test",
   "status": "passed",
-  "worktree_path": "/abs/path/.../eval-command-body-test-2",
+  "worktree_path": "/abs/path/.../HEAD-abc12345-eval-command-body-test",
   "session_id": "ses_...",
   "started_at": "...",
   "completed_at": "...",
