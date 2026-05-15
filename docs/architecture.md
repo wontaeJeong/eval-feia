@@ -37,11 +37,11 @@ The CLI attach mode is useful for humans but hides several behaviors that an eva
 
 ### CLI
 
-Parses config and calls the runner. Exposes only `run` and `clean`.
+Parses direct arguments and calls the runner. Exposes only `run` and `clean`.
 
-### Config loader
+### Runtime model builder
 
-Loads YAML/TOML/JSON config. Resolves paths to absolute paths. Validates defaults.
+Builds typed runtime models from CLI arguments. Resolves paths to absolute paths. Validates defaults.
 
 ### Git worktree manager
 
@@ -74,7 +74,7 @@ Removes manifest-recorded worktrees and result directories. Does not touch openc
 ## Execution lifecycle
 
 ```text
-load config
+build runtime config
   -> health preflight
   -> create run directory
   -> create worktrees
