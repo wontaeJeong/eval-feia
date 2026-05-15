@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class RepoRecord(BaseModel):
@@ -28,7 +28,6 @@ class CandidateManifestRecord(BaseModel):
 
     id: str
     eval_id: str | None = None
-    label: str | None = None
     requested_branch_name: str | None = None
     branch_name: str | None = None
     worktree_path: Path
@@ -36,12 +35,22 @@ class CandidateManifestRecord(BaseModel):
     session_id: str | None = None
     status: str = "created"
 
+    @model_validator(mode="before")
+    @classmethod
+    def discard_legacy_label(cls, value: object) -> object:
+        if isinstance(value, dict) and "label" in value:
+            cleaned = dict(value)
+            cleaned.pop("label", None)
+            return cleaned
+        return value
+
 
 class Manifest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     schema_version: int = 1
     run_id: str
+    label: str | None = None
     created_at: str
     repo: RepoRecord
     server: ServerRecord
@@ -70,7 +79,10 @@ def utc_now_iso() -> str:
 def write_manifest(manifest: Manifest, path: Path | None = None) -> Path:
     manifest_path = path or manifest.output_dir / "manifest.json"
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    manifest_path.write_text(_json_dumps(manifest.model_dump(mode="json")), encoding="utf-8")
+    manifest_path.write_text(
+        _json_dumps(manifest.model_dump(mode="json", exclude_none=True)),
+        encoding="utf-8",
+    )
     return manifest_path
 
 

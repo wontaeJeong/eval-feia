@@ -352,19 +352,18 @@ def test_runner_records_resolved_branch_names_labels_and_worktrees(tmp_path: Pat
                 "output_root": repo / ".eval-feia" / "runs",
                 "concurrency": 1,
                 "timeout_seconds": 5,
+                "label": "branch run label",
             },
             "evals": [
                 {
                     "id": "one",
                     "prompt": "first",
                     "branch_name": "eval/duplicate",
-                    "label": "first label",
                 },
                 {
                     "id": "two",
                     "prompt": "second",
                     "branch_name": "eval/duplicate",
-                    "label": "second label",
                 },
             ],
             "validation": {"commands": []},
@@ -377,21 +376,22 @@ def test_runner_records_resolved_branch_names_labels_and_worktrees(tmp_path: Pat
     outcome = run_evaluation(
         config,
         client=client,
-        console=Console(file=output),
+        console=Console(file=output, width=240),
         run_id="branch-run",
     )
 
     assert outcome.passed is True
+    assert outcome.summary["label"] == "branch run label"
     candidates = outcome.summary["candidates"]
-    assert candidates[0]["eval_id"] == "one"
-    assert candidates[0]["label"] == "first label"
+    assert "eval_id" not in candidates[0]
+    assert "label" not in candidates[0]
     assert candidates[0]["base_ref"] == "HEAD"
     assert candidates[0]["base_sha"] == outcome.summary["repo"]["base_sha"]
     assert candidates[0]["requested_branch_name"] == "eval/duplicate"
     assert candidates[0]["branch_name"] == "eval/branch-run/duplicate"
     assert Path(candidates[0]["worktree_path"]).name == "one"
-    assert candidates[1]["eval_id"] == "two"
-    assert candidates[1]["label"] == "second label"
+    assert "eval_id" not in candidates[1]
+    assert "label" not in candidates[1]
     assert candidates[1]["requested_branch_name"] == "eval/duplicate"
     assert candidates[1]["branch_name"] == "eval/branch-run/duplicate-2"
     assert Path(candidates[1]["worktree_path"]).name == "two"
@@ -401,7 +401,8 @@ def test_runner_records_resolved_branch_names_labels_and_worktrees(tmp_path: Pat
             encoding="utf-8"
         )
     )
-    assert result["label"] == "second label"
+    assert "label" not in result
+    assert "eval_id" not in result
     assert result["base_ref"] == "HEAD"
     assert result["base_sha"] == outcome.summary["repo"]["base_sha"]
     assert result["requested_branch_name"] == "eval/duplicate"
@@ -415,21 +416,24 @@ def test_runner_records_resolved_branch_names_labels_and_worktrees(tmp_path: Pat
     manifest = json.loads(
         (outcome.output_dir / "manifest.json").read_text(encoding="utf-8")
     )
+    assert manifest["label"] == "branch run label"
+    assert "eval_id" not in manifest["candidates"][1]
     assert manifest["candidates"][1]["branch_name"] == "eval/branch-run/duplicate-2"
     assert "run id: branch-run" in output.getvalue()
+    assert "label: branch run label" in output.getvalue()
     assert "base ref: HEAD (" in output.getvalue()
     assert "worktree root:" in output.getvalue()
     assert "candidates: 2; concurrency: 1" in output.getvalue()
     assert "opencode request: message" in output.getvalue()
     assert "validation commands: 0" in output.getvalue()
-    assert "[1/2] candidate: one" in output.getvalue()
-    assert "[1/2] eval: one" in output.getvalue()
-    assert "[1/2] label: first label" in output.getvalue()
-    assert "[1/2] requested branch: eval/duplicate" in output.getvalue()
-    assert "[1/2] resolved branch: eval/branch-run/duplicate" in output.getvalue()
-    assert "[2/2] candidate: two" in output.getvalue()
-    assert "[2/2] requested branch: eval/duplicate" in output.getvalue()
-    assert "[2/2] resolved branch: eval/branch-run/duplicate-2" in output.getvalue()
+    assert "CANDIDATE" in output.getvalue()
+    assert "BRANCH" in output.getvalue()
+    assert "WORKTREE" in output.getvalue()
+    assert "one" in output.getvalue()
+    assert "eval/branch-run/duplicate" in output.getvalue()
+    assert "two" in output.getvalue()
+    assert "eval/branch-run/duplicate-2" in output.getvalue()
+    assert "[1/2] candidate: one" not in output.getvalue()
 
 
 def test_health_retry_uses_dedicated_timeout() -> None:

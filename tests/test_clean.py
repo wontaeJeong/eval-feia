@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from eval_feia.manifest import (
     RepoRecord,
     ServerRecord,
     utc_now_iso,
+    load_manifest,
     write_manifest,
 )
 
@@ -113,6 +115,20 @@ def test_clean_removes_dirty_git_worktree_without_force(tmp_path: Path) -> None:
     assert result.errors == []
     assert not worktree.path.exists()
     assert not manifest.output_dir.exists()
+
+
+def test_manifest_loader_discards_legacy_candidate_label(tmp_path: Path) -> None:
+    manifest = _manifest(tmp_path)
+    manifest.output_dir.mkdir(parents=True)
+    manifest.worktree_root.mkdir(parents=True)
+    manifest_path = write_manifest(manifest)
+    raw = json.loads(manifest_path.read_text(encoding="utf-8"))
+    raw["candidates"][0]["label"] = "legacy candidate label"
+    manifest_path.write_text(json.dumps(raw), encoding="utf-8")
+
+    loaded = load_manifest(manifest_path)
+
+    assert not hasattr(loaded.candidates[0], "label")
 
 
 def _manifest(tmp_path: Path) -> Manifest:
