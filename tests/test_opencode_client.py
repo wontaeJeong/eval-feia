@@ -6,7 +6,66 @@ from urllib.parse import unquote
 
 import httpx
 
-from eval_feia.opencode_client import DIRECTORY_HEADER, OpencodeClient, encode_directory
+from eval_feia.opencode_client import (
+    DIRECTORY_HEADER,
+    OpencodeClient,
+    build_opencode_prompt_request,
+    encode_directory,
+)
+
+
+def test_build_prompt_request_uses_message_without_command() -> None:
+    path, body = build_opencode_prompt_request(
+        "ses_1",
+        "hello",
+        agent="build",
+        model={"providerID": "p", "modelID": "m"},
+    )
+
+    assert path == "/session/ses_1/message"
+    assert body == {
+        "agent": "build",
+        "model": {"providerID": "p", "modelID": "m"},
+        "parts": [{"type": "text", "text": "hello"}],
+    }
+    assert "command" not in body
+    assert "arguments" not in body
+
+
+def test_build_prompt_request_uses_command_endpoint_with_arguments() -> None:
+    path, body = build_opencode_prompt_request(
+        "ses_1",
+        "git status 확인해줘",
+        command="bash",
+        agent="build",
+        model={"providerID": "p", "modelID": "m"},
+    )
+
+    assert path == "/session/ses_1/command"
+    assert body == {
+        "agent": "build",
+        "arguments": "git status 확인해줘",
+        "command": "bash",
+        "model": "p/m",
+    }
+    assert "parts" not in body
+
+
+def test_build_prompt_request_normalizes_leading_slash_command() -> None:
+    path, body = build_opencode_prompt_request("ses_1", "echo hello", command="/bash")
+
+    assert path == "/session/ses_1/command"
+    assert body == {"arguments": "echo hello", "command": "bash"}
+
+
+def test_build_prompt_request_treats_blank_command_as_message() -> None:
+    for blank in ("", "   "):
+        path, body = build_opencode_prompt_request("ses_1", "hello", command=blank)
+
+        assert path == "/session/ses_1/message"
+        assert body == {"parts": [{"type": "text", "text": "hello"}]}
+        assert "command" not in body
+        assert "arguments" not in body
 
 
 def test_directory_encoding_is_exactly_once_for_get_and_post(tmp_path: Path) -> None:
@@ -93,11 +152,15 @@ def test_rest_request_shapes_for_session_prompt_collect_and_abort(tmp_path: Path
     prompt = seen[2]
     assert prompt[0:3] == ("POST", "/session/ses_1/message", "")
     assert prompt[3][DIRECTORY_HEADER] == encoded
-    assert prompt[4] == {
+    prompt_body = prompt[4]
+    assert isinstance(prompt_body, dict)
+    assert prompt_body == {
         "agent": "build",
         "model": {"providerID": "p", "modelID": "m"},
         "parts": [{"type": "text", "text": "hello"}],
     }
+    assert "command" not in prompt_body
+    assert "arguments" not in prompt_body
     for method, path, query, headers, _ in seen[3:7]:
         assert method == "GET"
         assert query == f"directory={encoded}"
@@ -111,3 +174,49 @@ def test_rest_request_shapes_for_session_prompt_collect_and_abort(tmp_path: Path
     assert seen[7][0:3] == ("GET", "/file/status", f"directory={encoded}")
     assert seen[8][0:3] == ("POST", "/session/ses_1/abort", "")
     assert seen[8][3][DIRECTORY_HEADER] == encoded
+
+
+def test_session_prompt_posts_command_request_shape(tmp_path: Path) -> None:
+    cwd = tmp_path / "candidate"
+    encoded = encode_directory(cwd)
+    seen: list[tuple[str, str, str, dict[str, str], dict[str, object] | None]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        json_body = None
+        if request.content:
+            json_body = json.loads(request.content.decode())
+        seen.append(
+            (
+                request.method,
+                request.url.path,
+                request.url.query.decode(),
+                dict(request.headers),
+                json_body,
+            )
+        )
+        if request.url.path == "/session/ses_1/command" and request.method == "POST":
+            return httpx.Response(200, json={"ok": True})
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    client = OpencodeClient("http://opencode.test", transport=httpx.MockTransport(handler))
+    client.session_prompt(
+        cwd,
+        "ses_1",
+        "git status 확인해줘",
+        command="/bash",
+        agent="build",
+        model={"providerID": "p", "modelID": "m"},
+    )
+
+    request = seen[0]
+    assert request[0:3] == ("POST", "/session/ses_1/command", "")
+    assert request[3][DIRECTORY_HEADER] == encoded
+    request_body = request[4]
+    assert isinstance(request_body, dict)
+    assert request_body == {
+        "agent": "build",
+        "arguments": "git status 확인해줘",
+        "command": "bash",
+        "model": "p/m",
+    }
+    assert "parts" not in request_body

@@ -10,6 +10,41 @@ import httpx
 DIRECTORY_HEADER = "x-opencode-directory"
 
 
+def normalize_command(command: str | None) -> str | None:
+    if command is None:
+        return None
+    normalized = command.strip().lstrip("/").strip()
+    return normalized or None
+
+
+def build_opencode_prompt_request(
+    session_id: str,
+    prompt: str,
+    *,
+    command: str | None = None,
+    agent: str | None = None,
+    model: dict[str, Any] | None = None,
+) -> tuple[str, dict[str, Any]]:
+    normalized_command = normalize_command(command)
+    if normalized_command is None:
+        body: dict[str, Any] = {"parts": [{"type": "text", "text": prompt}]}
+        endpoint = "message"
+    else:
+        body = {"command": normalized_command, "arguments": prompt}
+        endpoint = "command"
+
+    if agent is not None:
+        body["agent"] = agent
+    if model is not None:
+        body["model"] = _command_model(model) if normalized_command is not None else model
+
+    return f"/session/{session_id}/{endpoint}", body
+
+
+def _command_model(model: dict[str, Any]) -> str:
+    return f"{model['providerID']}/{model['modelID']}"
+
+
 def encode_directory(cwd: str | Path) -> str:
     path = Path(cwd).expanduser().resolve(strict=False)
     value = str(path)
@@ -72,18 +107,19 @@ class OpencodeClient:
         session_id: str,
         prompt: str,
         *,
+        command: str | None = None,
         agent: str | None = None,
         model: dict[str, Any] | None = None,
         timeout: float | None = None,
     ) -> dict[str, Any]:
-        body: dict[str, Any] = {"parts": [{"type": "text", "text": prompt}]}
-        if agent is not None:
-            body["agent"] = agent
-        if model is not None:
-            body["model"] = model
-        return self._request(
-            "POST", f"/session/{session_id}/message", cwd=cwd, json=body, timeout=timeout
+        path, body = build_opencode_prompt_request(
+            session_id,
+            prompt,
+            command=command,
+            agent=agent,
+            model=model,
         )
+        return self._request("POST", path, cwd=cwd, json=body, timeout=timeout)
 
     def session_abort(self, cwd: str | Path, session_id: str) -> dict[str, Any]:
         return self._request("POST", f"/session/{session_id}/abort", cwd=cwd)
