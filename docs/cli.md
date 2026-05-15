@@ -16,13 +16,22 @@ Optional direct flags may override config values:
 eval-feia run   --server-url http://127.0.0.1:4096   --repo .   --base-ref HEAD   --worktrees 3   --prompt-file ./prompt.md   --output-dir ./.eval-feia/runs
 ```
 
+For a one-off eval, inline prompt, branch, and label defaults can be supplied directly:
+
+```bash
+eval-feia run --prompt "..." --branch-name "eval/foo" --label "foo test"
+```
+
+For multiple named evals, prefer top-level `evals` entries in the config file. Per-eval
+`branch_name` and `label` values take precedence over CLI defaults.
+
 ### Required inputs
 
 - opencode server URL
 - git repository path
 - base ref
 - number of worktrees or explicit candidate list
-- prompt file
+- prompt text or prompt file
 - output directory
 
 ### Output
@@ -32,6 +41,7 @@ The command prints:
 - server health/version
 - run ID
 - generated worktree paths
+- eval id, display label, requested/resolved branch name, and worktree path
 - per-candidate session IDs
 - per-candidate status updates
 - final summary table
@@ -47,6 +57,8 @@ The command writes:
 - opencode diff
 - local git diff
 - validation result
+- result JSON and summary JSON with `label`, `requested_branch_name`, `branch_name`,
+  `worktree_path`, `session_id`, and status
 - final summary markdown and JSON
 
 ### Exit codes

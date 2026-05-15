@@ -56,15 +56,21 @@ def render_markdown_summary(summary: dict[str, Any]) -> str:
         f"Base ref: {summary['repo']['base_ref']} ({summary['repo']['base_sha']})",
         f"Output: {summary['output_dir']}",
         "",
-        "| Candidate | Status | Validation | Files | Additions | Deletions | Session | Worktree |",
-        "|---|---|---|---:|---:|---:|---|---|",
+        "| Candidate | Label | Branch | Status | Validation | Files | Additions | "
+        "Deletions | Session | Worktree |",
+        "|---|---|---|---|---|---:|---:|---:|---|---|",
     ]
     for candidate in summary["candidates"]:
         stats = candidate.get("summary", {})
         validation = candidate.get("validation_status", "unknown")
         lines.append(
-            "| {candidate_id} | {status} | {validation} | {files} | {adds} | {dels} | {session} | {worktree} |".format(
+            (
+                "| {candidate_id} | {label} | {branch} | {status} | {validation} | "
+                "{files} | {adds} | {dels} | {session} | {worktree} |"
+            ).format(
                 candidate_id=candidate.get("candidate_id", ""),
+                label=candidate.get("label", ""),
+                branch=candidate.get("branch_name", ""),
                 status=candidate.get("status", ""),
                 validation=validation,
                 files=stats.get("files_changed", 0),
@@ -86,12 +92,25 @@ def print_summary(console: Console, summary: dict[str, Any]) -> None:
     console.print(f"Output: {summary['output_dir']}")
 
     table = Table(title="eval-feia results")
-    for column in ("Candidate", "Status", "Validation", "Files", "Additions", "Deletions", "Session", "Worktree"):
+    for column in (
+        "Candidate",
+        "Label",
+        "Branch",
+        "Status",
+        "Validation",
+        "Files",
+        "Additions",
+        "Deletions",
+        "Session",
+        "Worktree",
+    ):
         table.add_column(column)
     for candidate in summary["candidates"]:
         stats = candidate.get("summary", {})
         table.add_row(
             str(candidate.get("candidate_id", "")),
+            str(candidate.get("label", "")),
+            str(candidate.get("branch_name", "")),
             str(candidate.get("status", "")),
             str(candidate.get("validation_status", "unknown")),
             str(stats.get("files_changed", 0)),

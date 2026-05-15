@@ -54,10 +54,23 @@ class RunConfig(BaseModel):
     candidates: int = Field(default=1, ge=1)
     concurrency: int = Field(default=1, ge=1)
     timeout_seconds: float = Field(default=3600.0, gt=0)
-    prompt_file: Path
+    prompt_file: Path | None = None
+    prompt: str | None = None
+    branch_name: str | None = None
+    label: str | None = None
     agent: str | None = None
     model: ModelConfig | dict[str, Any] | None = None
     delete_sessions_after_collect: bool = False
+
+
+class EvalItemConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str | None = None
+    prompt: str | None = None
+    prompt_file: Path | None = None
+    branch_name: str | None = None
+    label: str | None = None
 
 
 class ValidationCommandConfig(BaseModel):
@@ -96,11 +109,26 @@ class EvalConfig(BaseModel):
     server: ServerConfig = Field(default_factory=ServerConfig)
     repo: RepoConfig = Field(default_factory=RepoConfig)
     run: RunConfig
+    evals: list[EvalItemConfig] = Field(default_factory=list)
     validation: ValidationConfig = Field(default_factory=ValidationConfig)
     summary: SummaryConfig = Field(default_factory=SummaryConfig)
 
     @model_validator(mode="after")
     def validate_paths(self) -> "EvalConfig":
+        if self.evals:
+            self.run.candidates = len(self.evals)
+        if self.run.prompt is None and self.run.prompt_file is None:
+            missing_prompt = [
+                index
+                for index, item in enumerate(self.evals, start=1)
+                if item.prompt is None and item.prompt_file is None
+            ]
+            if missing_prompt:
+                raise ValueError(
+                    "run.prompt_file, run.prompt, or an eval-specific prompt/prompt_file is required"
+                )
+            if not self.evals:
+                raise ValueError("run.prompt_file or run.prompt is required")
         if self.run.concurrency > self.run.candidates:
             self.run.concurrency = self.run.candidates
         return self
@@ -112,6 +140,9 @@ class ConfigOverrides(BaseModel):
     base_ref: str | None = None
     worktrees: int | None = None
     prompt_file: Path | None = None
+    prompt: str | None = None
+    branch_name: str | None = None
+    label: str | None = None
     output_dir: Path | None = None
 
 
@@ -172,6 +203,12 @@ def _apply_overrides(raw: dict[str, Any], overrides: ConfigOverrides) -> dict[st
         data["run"]["candidates"] = overrides.worktrees
     if overrides.prompt_file is not None:
         data["run"]["prompt_file"] = overrides.prompt_file
+    if overrides.prompt is not None:
+        data["run"]["prompt"] = overrides.prompt
+    if overrides.branch_name is not None:
+        data["run"]["branch_name"] = overrides.branch_name
+    if overrides.label is not None:
+        data["run"]["label"] = overrides.label
     if overrides.output_dir is not None:
         data["run"]["output_root"] = overrides.output_dir
     return data
@@ -182,7 +219,11 @@ def resolve_config_paths(config: EvalConfig, base_dir: Path | None = None) -> Ev
     config.repo.path = _resolve_path(config.repo.path, root)
     config.repo.worktree_root = _resolve_path(config.repo.worktree_root, root)
     config.run.output_root = _resolve_path(config.run.output_root, root)
-    config.run.prompt_file = _resolve_path(config.run.prompt_file, root)
+    if config.run.prompt_file is not None:
+        config.run.prompt_file = _resolve_path(config.run.prompt_file, root)
+    for item in config.evals:
+        if item.prompt_file is not None:
+            item.prompt_file = _resolve_path(item.prompt_file, root)
     return config
 
 

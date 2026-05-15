@@ -22,19 +22,28 @@ opencode version: <version>
 
 ## Worktree setup
 
-For `N` candidates:
+For `N` candidates or top-level `evals` entries:
 
 ```bash
-git worktree add --detach <worktree-path> <base-ref>
+git worktree add -b <resolved-branch-name> <worktree-path> <base-ref>
 ```
 
-Print each generated path immediately:
+Each eval can request a `branch_name` and `label`. `label` is display-only. `branch_name`
+is sanitized, validated with `git check-ref-format --branch`, and resolved to a unique branch
+if the requested branch or worktree path already exists.
+
+Print each resolved value immediately:
 
 ```text
-[cand-001] worktree: /abs/path/.eval-feia/worktrees/<run-id>/cand-001
+[1/3] candidate: command-body-test
+[1/3] eval: command-body-test
+[1/3] label: command body test
+[1/3] requested branch: eval/command-body-test
+[1/3] resolved branch: eval/command-body-test-2
+[1/3] worktree: /abs/path/.eval-feia/worktrees/<run-id>/eval-command-body-test-2
 ```
 
-Record each worktree in `manifest.json` as soon as it is created.
+Record each worktree and its actual branch name in `manifest.json` as soon as it is created.
 
 ## Candidate execution
 
@@ -121,9 +130,11 @@ Opencode version: <version>
 Base ref: <sha/ref>
 Output: <result-dir>
 
-Candidate | Status | Validation | Files | Additions | Deletions | Session | Worktree
-cand-001  | passed | passed     | 5     | 120       | 13        | ses_... | /abs/...
-cand-002  | failed | failed     | 2     | 44        | 7         | ses_... | /abs/...
+Candidate | Label             | Branch         | Status | Validation | Files | Additions | Deletions | Session | Worktree
+cand-001  | command body test | eval/foo-2     | passed | passed     | 5     | 120       | 13        | ses_... | /abs/...
+cand-002  | attach healthcheck | eval/bar       | failed | failed     | 2     | 44        | 7         | ses_... | /abs/...
 ```
 
-Also write `run-summary.md` and `run-summary.json`.
+Also write `run-summary.md` and `run-summary.json`. JSON candidate records include
+`eval_id`, `label`, `requested_branch_name`, `branch_name`, `worktree_path`, `session_id`,
+and `status`; `branch_name` is the branch actually created or used after suffix resolution.

@@ -22,9 +22,13 @@
   "worktree_root": "/abs/path/repo/.eval-feia/worktrees/20260514-123456-a1b2c3",
   "candidates": [
     {
-      "id": "cand-001",
-      "worktree_path": "/abs/path/repo/.eval-feia/worktrees/20260514-123456-a1b2c3/cand-001",
-      "result_dir": "/abs/path/repo/.eval-feia/runs/20260514-123456-a1b2c3/candidates/cand-001",
+      "id": "command-body-test",
+      "eval_id": "command-body-test",
+      "label": "command body test",
+      "requested_branch_name": "eval/command-body-test",
+      "branch_name": "eval/command-body-test-2",
+      "worktree_path": "/abs/path/repo/.eval-feia/worktrees/20260514-123456-a1b2c3/eval-command-body-test-2",
+      "result_dir": "/abs/path/repo/.eval-feia/runs/20260514-123456-a1b2c3/candidates/command-body-test",
       "session_id": "ses_...",
       "status": "completed"
     }
@@ -32,13 +36,21 @@
 }
 ```
 
+`requested_branch_name` is the user-provided value, if any. `branch_name` is the Git branch
+actually created for the worktree after sanitization and collision suffixing. `label` is a
+display value only and must not be used directly as a path or Git ref.
+
 ## Candidate result
 
 ```json
 {
-  "candidate_id": "cand-001",
+  "candidate_id": "command-body-test",
+  "eval_id": "command-body-test",
+  "label": "command body test",
+  "requested_branch_name": "eval/command-body-test",
+  "branch_name": "eval/command-body-test-2",
   "status": "passed",
-  "worktree_path": "/abs/path/.../cand-001",
+  "worktree_path": "/abs/path/.../eval-command-body-test-2",
   "session_id": "ses_...",
   "started_at": "...",
   "completed_at": "...",

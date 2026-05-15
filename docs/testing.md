@@ -33,6 +33,18 @@ Verify:
 - clean removes only manifest paths
 - dry-run does not delete
 
+### Eval labels and branch names
+
+Verify:
+
+- config parsing accepts eval-specific `branch_name` and `label`
+- old `run.candidates` plus `run.prompt_file` configs still work
+- label falls back to eval id and then index-based candidate id
+- missing branch names fall back to safe `eval/<id>` names
+- sanitized branch names pass `git check-ref-format --branch`
+- duplicate requested branches resolve to unique actual `branch_name` values
+- candidate `result.json` and `run-summary.json` record the actual resolved branch name
+
 ### Runner behavior
 
 Verify:
