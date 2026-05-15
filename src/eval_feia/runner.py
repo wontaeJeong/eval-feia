@@ -128,7 +128,7 @@ def _health_with_retry(client: OpencodeClient, config: EvalConfig) -> dict[str, 
     last_error = ""
     for attempt in range(1, config.server.health_retries + 1):
         try:
-            health = client.health()
+            health = client.health(timeout=config.server.health_timeout_seconds)
             if health.get("healthy", True) is False:
                 last_error = f"server reported unhealthy: {health}"
             else:
@@ -160,9 +160,7 @@ def _build_candidate_specs(config: EvalConfig) -> list[CandidateSpec]:
         candidate_id = _unique_candidate_id(explicit_eval_id or default_id, used_ids)
         eval_id = explicit_eval_id or candidate_id
         label = _resolved_label(item, config, explicit_eval_id, default_id, has_explicit_evals)
-        requested_branch_name = (
-            item.branch_name if item.branch_name is not None else config.run.branch_name
-        )
+        requested_branch_name = item.branch_name
         fallback_source = explicit_eval_id or label or default_id
         fallback_branch = f"eval/{fallback_source}"
         branch_name = sanitize_branch_name(requested_branch_name, fallback_branch)
@@ -200,14 +198,10 @@ def _resolved_label(
 
 
 def _prompt_for_eval(config: EvalConfig, item: EvalItemConfig) -> str:
-    if item.prompt is not None:
-        return item.prompt
-    if item.prompt_file is not None:
-        return read_prompt(item.prompt_file)
-    if config.run.prompt is not None:
-        return config.run.prompt
-    if config.run.prompt_file is not None:
-        return read_prompt(config.run.prompt_file)
+    if item.prompt is not None or item.prompt_file is not None:
+        return read_prompt(item.prompt, item.prompt_file)
+    if config.run.prompt is not None or config.run.prompt_file is not None:
+        return read_prompt(config.run.prompt, config.run.prompt_file)
     raise EvalFeiaError("config_error", "no prompt or prompt_file configured")
 
 
@@ -242,7 +236,7 @@ def _create_worktrees(
         result_dir.mkdir(parents=True, exist_ok=True)
         created = manager.create_branch_worktree(
             manifest.worktree_root,
-            branch_name_to_path_slug(spec.branch_name),
+            _worktree_path_slug(manifest.repo.base_ref, manifest.repo.base_sha, spec.branch_name),
             config.repo.base_ref,
             spec.branch_name,
         )
@@ -407,6 +401,8 @@ def _execute_candidate(
         "candidate_id": record.id,
         "eval_id": record.eval_id or record.id,
         "label": record.label or record.eval_id or record.id,
+        "base_ref": manifest.repo.base_ref,
+        "base_sha": manifest.repo.base_sha,
         "requested_branch_name": record.requested_branch_name,
         "branch_name": record.branch_name,
         "status": status,
@@ -514,6 +510,13 @@ def _record_prefix(record: CandidateManifestRecord) -> str:
     if len(label) > 40:
         label = f"{label[:37]}..."
     return f"[{record.id} {label}]"
+
+
+def _worktree_path_slug(base_ref: str, base_sha: str, branch_name: str) -> str:
+    short_sha = base_sha[:8]
+    source_slug = sanitize_path_slug(f"{base_ref}-{short_sha}", fallback=short_sha or "base")
+    branch_slug = branch_name_to_path_slug(branch_name)
+    return sanitize_path_slug(f"{source_slug}-{branch_slug}", fallback=branch_slug)
 
 
 def _run_validation(config: EvalConfig, worktree: Path, result_dir: Path) -> dict[str, Any]:
