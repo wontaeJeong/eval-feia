@@ -77,8 +77,8 @@ class OpencodeClient:
     def close(self) -> None:
         self._client.close()
 
-    def health(self) -> dict[str, Any]:
-        return self._request("GET", "/global/health")
+    def health(self, *, timeout: float | None = None) -> dict[str, Any]:
+        return self._request("GET", "/global/health", timeout=timeout)
 
     def path(self, cwd: str | Path) -> dict[str, Any]:
         return self._request("GET", "/path", cwd=cwd)

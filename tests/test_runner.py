@@ -12,7 +12,7 @@ from rich.console import Console
 
 from eval_feia.config import EvalConfig
 from eval_feia.opencode_client import DIRECTORY_HEADER, OpencodeClient
-from eval_feia.runner import run_evaluation
+from eval_feia.runner import _health_with_retry, run_evaluation
 
 
 def test_runner_success_collects_children_validation_and_summary(tmp_path: Path) -> None:
@@ -158,6 +158,50 @@ def test_runner_command_posts_command_endpoint(tmp_path: Path) -> None:
     assert outcome.passed is True
     assert any(req.url.path == "/session/ses_1/command" and req.method == "POST" for req in seen)
     assert not any(req.url.path == "/session/ses_1/message" and req.method == "POST" for req in seen)
+
+
+def test_runner_uses_inline_prompt(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path / "repo")
+    seen_prompt = ""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal seen_prompt
+        cwd = _request_cwd(request) if request.url.path != "/global/health" else ""
+        if request.url.path == "/global/health":
+            return httpx.Response(200, json={"healthy": True, "version": "fake"})
+        if request.url.path in {"/path", "/project/current", "/config", "/vcs"}:
+            return httpx.Response(200, json={"path": cwd})
+        if request.url.path == "/session" and request.method == "POST":
+            return httpx.Response(200, json={"id": "ses_1", "directory": cwd})
+        if request.url.path == "/session/ses_1/message" and request.method == "POST":
+            body = json.loads(request.content.decode())
+            seen_prompt = body["parts"][0]["text"]
+            return httpx.Response(200, json={"ok": True})
+        if request.url.path == "/session/ses_1":
+            return httpx.Response(200, json={"id": "ses_1", "directory": cwd})
+        if request.url.path == "/session/ses_1/message":
+            return httpx.Response(200, json=[])
+        if request.url.path == "/session/ses_1/children":
+            return httpx.Response(200, json=[])
+        if request.url.path == "/session/ses_1/todo":
+            return httpx.Response(200, json=[])
+        if request.url.path == "/session/ses_1/diff":
+            return httpx.Response(200, json={})
+        if request.url.path == "/file/status":
+            return httpx.Response(200, json=[])
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    config = _config(repo, prompt=None, prompt_text="hello inline")
+    client = OpencodeClient("http://opencode.test", transport=httpx.MockTransport(handler))
+    outcome = run_evaluation(
+        config,
+        client=client,
+        console=Console(file=io.StringIO()),
+        run_id="inline-prompt-run",
+    )
+
+    assert outcome.passed is True
+    assert seen_prompt == "hello inline"
 
 
 def test_runner_timeout_aborts_and_collects_partial_artifacts(tmp_path: Path) -> None:
@@ -339,16 +383,19 @@ def test_runner_records_resolved_branch_names_labels_and_worktrees(tmp_path: Pat
 
     assert outcome.passed is True
     candidates = outcome.summary["candidates"]
+    source_prefix = f"HEAD-{outcome.summary['repo']['base_sha'][:8]}"
     assert candidates[0]["eval_id"] == "one"
     assert candidates[0]["label"] == "first label"
+    assert candidates[0]["base_ref"] == "HEAD"
+    assert candidates[0]["base_sha"] == outcome.summary["repo"]["base_sha"]
     assert candidates[0]["requested_branch_name"] == "eval/duplicate"
     assert candidates[0]["branch_name"] == "eval/duplicate"
-    assert candidates[0]["worktree_path"].endswith("eval-duplicate")
+    assert Path(candidates[0]["worktree_path"]).name == f"{source_prefix}-eval-duplicate"
     assert candidates[1]["eval_id"] == "two"
     assert candidates[1]["label"] == "second label"
     assert candidates[1]["requested_branch_name"] == "eval/duplicate"
     assert candidates[1]["branch_name"] == "eval/duplicate-2"
-    assert candidates[1]["worktree_path"].endswith("eval-duplicate-2")
+    assert Path(candidates[1]["worktree_path"]).name == f"{source_prefix}-eval-duplicate-2"
 
     result = json.loads(
         (outcome.output_dir / "candidates" / "two" / "result.json").read_text(
@@ -356,6 +403,8 @@ def test_runner_records_resolved_branch_names_labels_and_worktrees(tmp_path: Pat
         )
     )
     assert result["label"] == "second label"
+    assert result["base_ref"] == "HEAD"
+    assert result["base_sha"] == outcome.summary["repo"]["base_sha"]
     assert result["requested_branch_name"] == "eval/duplicate"
     assert result["branch_name"] == "eval/duplicate-2"
     assert result["worktree_path"] == candidates[1]["worktree_path"]
@@ -376,10 +425,41 @@ def test_runner_records_resolved_branch_names_labels_and_worktrees(tmp_path: Pat
     assert "[2/2] resolved branch: eval/duplicate-2" in output.getvalue()
 
 
+def test_health_retry_uses_dedicated_timeout() -> None:
+    class FakeClient(OpencodeClient):
+        def __init__(self) -> None:
+            self.timeouts: list[float | None] = []
+
+        def health(self, *, timeout: float | None = None) -> dict[str, object]:
+            self.timeouts.append(timeout)
+            if len(self.timeouts) == 1:
+                return {"healthy": False}
+            return {"healthy": True, "version": "fake"}
+
+    config = EvalConfig.model_validate(
+        {
+            "server": {
+                "url": "http://opencode.test",
+                "health_retries": 2,
+                "health_interval_ms": 0,
+                "health_timeout_seconds": 1.25,
+            },
+            "run": {"prompt": "hello"},
+        }
+    )
+    client = FakeClient()
+
+    health = _health_with_retry(client, config)
+
+    assert health["version"] == "fake"
+    assert client.timeouts == [1.25, 1.25]
+
+
 def _config(
     repo: Path,
-    prompt: Path,
+    prompt: Path | None,
     *,
+    prompt_text: str | None = None,
     candidates: int = 1,
     timeout_seconds: float = 5,
     command: str | None = None,
@@ -415,6 +495,7 @@ def _config(
                 "candidates": candidates,
                 "concurrency": min(candidates, 2),
                 "timeout_seconds": timeout_seconds,
+                "prompt": prompt_text,
                 "prompt_file": prompt,
                 "agent": "build",
                 "model": model,
