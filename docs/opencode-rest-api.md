@@ -144,7 +144,28 @@ Fields are optional except `parts`. Omit `model` to use opencode defaults. Omit 
 
 Use this synchronous endpoint as the MVP default. It sends a message and waits for the response.
 
-### 5. Optional async prompt
+### 5. Optional slash command execution
+
+```http
+POST /session/{id}/command
+x-opencode-directory: <encoded-worktree>
+Content-Type: application/json
+```
+
+Body:
+
+```json
+{
+  "agent": "build",
+  "model": "anthropic/claude-sonnet-4-5",
+  "command": "bash",
+  "arguments": "<prompt text>"
+}
+```
+
+Fields are optional except `command` and `arguments`. Do not send `parts`, `noReply`, `system`, or `tools` to this endpoint. If a user enters `/bash`, send `"bash"` as the command value.
+
+### 6. Optional async prompt
 
 ```http
 POST /session/{id}/prompt_async
@@ -156,7 +177,7 @@ Body is the same as `/session/{id}/message`. Response is `204 No Content`.
 
 Do not use this as the MVP default unless `/event` or `/session/status` handling is implemented robustly. Async execution requires reliable progress tracking, timeout handling, permission handling, and child-session tracking.
 
-### 6. Track status
+### 7. Track status
 
 ```http
 GET /session/status?directory=<encoded-worktree>
@@ -178,7 +199,7 @@ busy
 retry
 ```
 
-### 7. Stream events
+### 8. Stream events
 
 Instance events:
 
@@ -210,9 +231,9 @@ Useful event types include:
 - `todo.updated`
 - `file.edited`
 
-MVP can rely on synchronous `/message` first and use polling for collection. SSE can be added for progress display and async mode.
+MVP can rely on synchronous `/message` by default, or synchronous `/command` when command mode is configured, and use polling for collection. SSE can be added for progress display and async mode.
 
-### 8. Permission handling
+### 9. Permission handling
 
 ```http
 POST /session/{id}/permissions/{permissionID}
@@ -231,7 +252,7 @@ Body:
 
 Recommended MVP policy: avoid interactive permission waits by configuring opencode permissions appropriately for disposable worktrees. If a permission event appears and no auto-permission policy is configured, mark candidate as `permission_required` and abort or fail clearly.
 
-### 9. Collect results
+### 10. Collect results
 
 ```http
 GET /session/{id}?directory=<encoded-worktree>
@@ -251,7 +272,7 @@ GET /session/{childID}/children?directory=<encoded-worktree>
 GET /session/{childID}/diff?directory=<encoded-worktree>
 ```
 
-### 10. Abort on timeout
+### 11. Abort on timeout
 
 ```http
 POST /session/{id}/abort
@@ -461,6 +482,7 @@ POST /session
 GET  /session/status
 GET  /session/{id}
 POST /session/{id}/message
+POST /session/{id}/command   optional slash-command execution
 POST /session/{id}/abort
 GET  /session/{id}/message
 GET  /session/{id}/children

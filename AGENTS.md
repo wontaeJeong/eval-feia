@@ -90,6 +90,8 @@ For each candidate worktree:
    - `POST /session/{id}/message`
    - header: `x-opencode-directory: <encoded-worktree>`
    - body includes `parts: [{ "type": "text", "text": <prompt> }]`
+   - when command mode is configured, use `POST /session/{id}/command` instead
+   - command body includes `command` and string `arguments: <prompt>`; do not include `parts`
 4. Collect:
    - `GET /session/{id}?directory=<encoded-worktree>`
    - `GET /session/{id}/message?directory=<encoded-worktree>`
