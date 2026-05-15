@@ -16,6 +16,7 @@ run:
   concurrency: 1
   timeout_seconds: 3600
   prompt_file: "./examples/prompt.md"
+  command: null
   agent: "build"
   model: null
   delete_sessions_after_collect: false

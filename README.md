@@ -6,6 +6,7 @@ The server lifecycle stays external: start `opencode serve` yourself, then run e
 
 ```bash
 eval-feia run --config examples/eval-feia.yaml
+eval-feia run --config examples/eval-feia.yaml --command bash
 eval-feia clean --manifest .eval-feia/runs/<run-id>/manifest.json
 ```
 
@@ -37,6 +38,7 @@ python -m pip install -e '.[dev]'
 - Does not start, stop, restart, dispose, or kill `opencode serve`.
 - Does not shell out to `opencode run --attach`.
 - Uses `POST /session/{id}/message` for prompt execution by default.
+- Uses `POST /session/{id}/command` when `--command` or `run.command` is set; the prompt text is sent as command `arguments`.
 - Sends worktree directory context on every worktree-specific opencode request.
 - Uses `directory=<encoded-path>` for `GET`/`HEAD` and `x-opencode-directory` for non-GET requests.
 - Creates worktrees, executes, collects, validates, summarizes, and prints the final result from `run`.

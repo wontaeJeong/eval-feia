@@ -13,7 +13,7 @@ eval-feia run --config eval-feia.yaml
 Optional direct flags may override config values:
 
 ```bash
-eval-feia run   --server-url http://127.0.0.1:4096   --repo .   --base-ref HEAD   --worktrees 3   --prompt-file ./prompt.md   --output-dir ./.eval-feia/runs
+eval-feia run   --server-url http://127.0.0.1:4096   --repo .   --base-ref HEAD   --worktrees 3   --prompt-file ./prompt.md   --command bash   --output-dir ./.eval-feia/runs
 ```
 
 For a one-off eval, inline prompt, branch, and label defaults can be supplied directly:
@@ -25,6 +25,8 @@ eval-feia run --prompt "..." --branch-name "eval/foo" --label "foo test"
 For multiple named evals, prefer top-level `evals` entries in the config file. Per-eval
 `branch_name` and `label` values take precedence over CLI defaults.
 
+`--command <name>` runs an opencode slash command. The prompt file content is sent to opencode as the command `arguments`. A leading slash is accepted in CLI input, so `--command /bash` sends `"bash"` in the HTTP request body.
+
 ### Required inputs
 
 - opencode server URL
@@ -32,6 +34,7 @@ For multiple named evals, prefer top-level `evals` entries in the config file. P
 - base ref
 - number of worktrees or explicit candidate list
 - prompt text or prompt file
+- optional slash command name
 - output directory
 
 ### Output
