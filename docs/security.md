@@ -16,15 +16,7 @@ unless a later explicit requirement adds credential management.
 
 If opencode server is protected with `OPENCODE_SERVER_PASSWORD`, support HTTP basic auth through environment variables only.
 
-Example config:
-
-```yaml
-server:
-  username: "opencode"
-  password_env: "OPENCODE_SERVER_PASSWORD"
-```
-
-Never print password values or Authorization headers.
+Never print password values or Authorization headers. If programmatic configuration supplies a password environment variable, resolve it at runtime only.
 
 ## Filesystem safety
 
