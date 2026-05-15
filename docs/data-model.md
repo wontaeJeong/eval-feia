@@ -8,6 +8,7 @@
 {
   "schema_version": 1,
   "run_id": "20260514-123456-a1b2c3",
+  "label": "command body test",
   "created_at": "2026-05-14T12:34:56+09:00",
   "repo": {
     "path": "/abs/path/repo",
@@ -23,8 +24,7 @@
   "candidates": [
     {
       "id": "command-body-test",
-      "eval_id": "command-body-test",
-      "label": "command body test",
+      "eval_id": null,
       "requested_branch_name": null,
       "branch_name": "eval/20260514-123456-a1b2c3/command-body-test",
       "worktree_path": "/abs/path/repo/.eval-feia/worktrees/20260514-123456-a1b2c3/command-body-test",
@@ -36,19 +36,20 @@
 }
 ```
 
-`branch_name` is the Git branch actually created for the worktree after run scoping,
-sanitization, and collision suffixing. `label` is a display value only and must not be used
-directly as a path or Git ref. Worktree directories are intentionally simple: the run ID is the
-grouping directory, and each candidate gets a candidate-id leaf directory. Base ref and SHA
-metadata stay in manifest and result records instead of being repeated in path names.
+`label` is a run-level display value only and must not be repeated as candidate metadata,
+used directly as a path, or used as a Git ref. `branch_name` is the Git branch actually
+created for the worktree after run scoping, sanitization, and collision suffixing. Worktree
+directories are intentionally simple: the run ID is the grouping directory, and each candidate
+gets a candidate-id leaf directory. Base ref and SHA metadata stay in manifest and result
+records instead of being repeated in path names. `eval_id` is `null` when it would duplicate
+the candidate ID.
 
 ## Candidate result
 
 ```json
 {
   "candidate_id": "command-body-test",
-  "eval_id": "command-body-test",
-  "label": "command body test",
+  "eval_id": null,
   "base_ref": "HEAD",
   "base_sha": "abc12345...",
   "requested_branch_name": null,
