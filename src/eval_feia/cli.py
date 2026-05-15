@@ -24,6 +24,15 @@ def run(
     base_ref: Annotated[str | None, typer.Option("--base-ref", help="Base git ref.")] = None,
     worktrees: Annotated[int | None, typer.Option("--worktrees", help="Number of candidates.")] = None,
     prompt_file: Annotated[Path | None, typer.Option("--prompt-file", help="Prompt file.")] = None,
+    prompt: Annotated[str | None, typer.Option("--prompt", help="Inline prompt text.")] = None,
+    branch_name: Annotated[
+        str | None,
+        typer.Option("--branch-name", help="Default branch name for a single eval/candidate."),
+    ] = None,
+    label: Annotated[
+        str | None,
+        typer.Option("--label", help="Default human-readable eval label."),
+    ] = None,
     output_dir: Annotated[Path | None, typer.Option("--output-dir", help="Run output root.")] = None,
 ) -> None:
     """Create worktrees, execute opencode sessions, collect results, and summarize."""
@@ -36,6 +45,9 @@ def run(
                 base_ref=base_ref,
                 worktrees=worktrees,
                 prompt_file=prompt_file,
+                prompt=prompt,
+                branch_name=branch_name,
+                label=label,
                 output_dir=output_dir,
             ),
         )

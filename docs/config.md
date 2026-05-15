@@ -25,6 +25,16 @@ run:
   model: null
   delete_sessions_after_collect: false
 
+evals:
+  - id: "command-body-test"
+    prompt: "Run the command body test."
+    branch_name: "eval/command-body-test"
+    label: "command body test"
+  - id: "attach-healthcheck"
+    prompt: "Run the attach healthcheck test."
+    branch_name: "eval/attach-healthcheck"
+    label: "attach healthcheck"
+
 validation:
   commands:
     - name: "unit-tests"
@@ -70,7 +80,8 @@ Root directory for generated git worktrees.
 
 ### `run.candidates`
 
-Number of worktrees/candidates to create.
+Number of worktrees/candidates to create when `evals` is omitted. If `evals` is present,
+the eval list length is used instead.
 
 ### `run.concurrency`
 
@@ -95,6 +106,63 @@ model:
 ```
 
 If omitted, opencode chooses the configured default.
+
+### `run.prompt` / `run.prompt_file`
+
+Global prompt text or prompt file. Eval items can override this with their own `prompt` or
+`prompt_file`. Existing configs that only set `run.prompt_file` continue to work.
+
+### `run.branch_name` / `run.label`
+
+Optional defaults mainly for one-off CLI runs with `--branch-name` and `--label`.
+`run.branch_name` is used when an eval item omits `branch_name`; `run.label` is used for
+numeric `run.candidates` runs without an explicit `evals` list.
+
+## Eval item config
+
+Use top-level `evals` when individual evals need distinct prompts, branch names, or display
+labels:
+
+```yaml
+evals:
+  - id: command-body-test
+    prompt: "..."
+    branch_name: "eval/command-body-test"
+    label: "command body test"
+```
+
+Fields:
+
+- `id`: stable eval identifier. If omitted, eval-feia uses the index-based candidate id.
+- `prompt` / `prompt_file`: eval-specific prompt source. Falls back to `run.prompt` or
+  `run.prompt_file`.
+- `label`: human-readable display value for logs, summaries, and result files. It is not
+  used directly for shell commands, paths, or branch names.
+- `branch_name`: requested Git branch name for the eval worktree.
+
+Fallbacks:
+
+- `label`: eval `label`, then eval `id`, then the index-based candidate id.
+- `branch_name`: eval `branch_name`, then `run.branch_name`, then `eval/<safe eval id>`.
+  If an eval has a `label` but no `id`, the default branch uses the safe label.
+
+Branch names are sanitized before use: whitespace becomes `-`, invalid Git ref characters
+are replaced, repeated separators are normalized, unsafe leading/trailing characters are
+trimmed, and the final value is checked with `git check-ref-format --branch`. If a requested
+branch or worktree path collides, eval-feia appends a numeric suffix such as `-2` and records
+the resolved branch name.
+
+Result JSON and `run-summary.json` include the actual display and branch values:
+
+```json
+{
+  "eval_id": "command-body-test",
+  "label": "command body test",
+  "requested_branch_name": "eval/command-body-test",
+  "branch_name": "eval/command-body-test-2",
+  "worktree_path": "/abs/path/to/worktree"
+}
+```
 
 ## Validation config
 

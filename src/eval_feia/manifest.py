@@ -27,6 +27,10 @@ class CandidateManifestRecord(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str
+    eval_id: str | None = None
+    label: str | None = None
+    requested_branch_name: str | None = None
+    branch_name: str | None = None
     worktree_path: Path
     result_dir: Path
     session_id: str | None = None

@@ -15,9 +15,15 @@ import httpx
 from rich.console import Console
 
 from .collector import collect_candidate
-from .config import EvalConfig, read_prompt
+from .config import EvalConfig, EvalItemConfig, read_prompt
 from .errors import ErrorRecord, EvalFeiaError, HealthError
-from .git_worktree import GitWorktreeManager, LocalGitArtifacts
+from .git_worktree import (
+    GitWorktreeManager,
+    LocalGitArtifacts,
+    branch_name_to_path_slug,
+    sanitize_branch_name,
+    sanitize_path_slug,
+)
 from .manifest import (
     CandidateManifestRecord,
     Manifest,
@@ -39,6 +45,18 @@ class RunOutcome:
     passed: bool
 
 
+@dataclass(slots=True)
+class CandidateSpec:
+    id: str
+    eval_id: str
+    index: int
+    total: int
+    label: str
+    requested_branch_name: str | None
+    branch_name: str
+    prompt: str
+
+
 def generate_run_id() -> str:
     return f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{secrets.token_hex(3)}"
 
@@ -51,7 +69,7 @@ def run_evaluation(
     run_id: str | None = None,
 ) -> RunOutcome:
     active_console = console if console is not None else Console()
-    prompt = read_prompt(config.run.prompt_file)
+    specs = _build_candidate_specs(config)
     manager = GitWorktreeManager(config.repo.path)
     repo_root = manager.ensure_repo()
     base_sha = manager.resolve_sha(config.repo.base_ref)
@@ -88,10 +106,10 @@ def run_evaluation(
         )
         write_manifest(manifest)
 
-        records = _create_worktrees(config, manager, manifest, active_console)
+        records = _create_worktrees(config, specs, manager, manifest, active_console)
         candidate_results = _execute_candidates(
             config,
-            prompt,
+            specs,
             client,
             manager,
             manifest,
@@ -120,7 +138,8 @@ def _health_with_retry(client: OpencodeClient, config: EvalConfig) -> dict[str, 
         if attempt < config.server.health_retries:
             time.sleep(config.server.health_interval_ms / 1000)
     raise HealthError(
-        "opencode server health check failed; start it with `opencode serve --hostname 127.0.0.1 --port 4096`",
+        "opencode server health check failed; start it with "
+        "`opencode serve --hostname 127.0.0.1 --port 4096`",
         details={
             "server_url": config.server.url,
             "attempts": config.server.health_retries,
@@ -129,23 +148,124 @@ def _health_with_retry(client: OpencodeClient, config: EvalConfig) -> dict[str, 
     )
 
 
+def _build_candidate_specs(config: EvalConfig) -> list[CandidateSpec]:
+    has_explicit_evals = bool(config.evals)
+    items = config.evals or [EvalItemConfig() for _ in range(1, config.run.candidates + 1)]
+    total = len(items)
+    used_ids: set[str] = set()
+    specs: list[CandidateSpec] = []
+    for index, item in enumerate(items, start=1):
+        default_id = f"cand-{index:03d}"
+        explicit_eval_id = _non_empty(item.id)
+        candidate_id = _unique_candidate_id(explicit_eval_id or default_id, used_ids)
+        eval_id = explicit_eval_id or candidate_id
+        label = _resolved_label(item, config, explicit_eval_id, default_id, has_explicit_evals)
+        requested_branch_name = (
+            item.branch_name if item.branch_name is not None else config.run.branch_name
+        )
+        fallback_source = explicit_eval_id or label or default_id
+        fallback_branch = f"eval/{fallback_source}"
+        branch_name = sanitize_branch_name(requested_branch_name, fallback_branch)
+        specs.append(
+            CandidateSpec(
+                id=candidate_id,
+                eval_id=eval_id,
+                index=index,
+                total=total,
+                label=label,
+                requested_branch_name=requested_branch_name,
+                branch_name=branch_name,
+                prompt=_prompt_for_eval(config, item),
+            )
+        )
+    return specs
+
+
+def _resolved_label(
+    item: EvalItemConfig,
+    config: EvalConfig,
+    explicit_eval_id: str | None,
+    default_id: str,
+    has_explicit_evals: bool,
+) -> str:
+    label = _non_empty(item.label)
+    if label is not None:
+        return label
+    if explicit_eval_id is not None:
+        return explicit_eval_id
+    run_label = _non_empty(config.run.label)
+    if run_label is not None and not has_explicit_evals:
+        return run_label
+    return default_id
+
+
+def _prompt_for_eval(config: EvalConfig, item: EvalItemConfig) -> str:
+    if item.prompt is not None:
+        return item.prompt
+    if item.prompt_file is not None:
+        return read_prompt(item.prompt_file)
+    if config.run.prompt is not None:
+        return config.run.prompt
+    if config.run.prompt_file is not None:
+        return read_prompt(config.run.prompt_file)
+    raise EvalFeiaError("config_error", "no prompt or prompt_file configured")
+
+
+def _unique_candidate_id(value: str, used_ids: set[str]) -> str:
+    base = sanitize_path_slug(value, fallback="cand")
+    candidate = base
+    suffix = 2
+    while candidate in used_ids:
+        candidate = f"{base}-{suffix}"
+        suffix += 1
+    used_ids.add(candidate)
+    return candidate
+
+
+def _non_empty(value: str | None) -> str | None:
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
 def _create_worktrees(
     config: EvalConfig,
+    specs: list[CandidateSpec],
     manager: GitWorktreeManager,
     manifest: Manifest,
     console: Console,
 ) -> list[CandidateManifestRecord]:
     records: list[CandidateManifestRecord] = []
-    for index in range(1, config.run.candidates + 1):
-        candidate_id = f"cand-{index:03d}"
-        worktree_path = manifest.worktree_root / candidate_id
-        result_dir = manifest.output_dir / "candidates" / candidate_id
+    for spec in specs:
+        result_dir = manifest.output_dir / "candidates" / spec.id
         result_dir.mkdir(parents=True, exist_ok=True)
-        created_path = manager.create_worktree(worktree_path, config.repo.base_ref)
-        console.print(f"[{candidate_id}] worktree: {created_path}", markup=False)
+        created = manager.create_branch_worktree(
+            manifest.worktree_root,
+            branch_name_to_path_slug(spec.branch_name),
+            config.repo.base_ref,
+            spec.branch_name,
+        )
+        prefix = f"[{spec.index}/{spec.total}]"
+        console.print(f"{prefix} candidate: {spec.id}", markup=False)
+        console.print(f"{prefix} eval: {spec.eval_id}", markup=False)
+        console.print(f"{prefix} label: {spec.label}", markup=False)
+        if (
+            spec.requested_branch_name is not None
+            and spec.requested_branch_name != created.branch_name
+        ):
+            console.print(f"{prefix} requested branch: {spec.requested_branch_name}", markup=False)
+            console.print(f"{prefix} resolved branch: {created.branch_name}", markup=False)
+        else:
+            console.print(f"{prefix} branch: {created.branch_name}", markup=False)
+        console.print(f"{prefix} worktree: {created.path}", markup=False)
         record = CandidateManifestRecord(
-            id=candidate_id,
-            worktree_path=created_path,
+            id=spec.id,
+            eval_id=spec.eval_id,
+            label=spec.label,
+            requested_branch_name=spec.requested_branch_name,
+            branch_name=created.branch_name,
+            worktree_path=created.path,
             result_dir=result_dir.resolve(strict=False),
             status="created",
         )
@@ -157,7 +277,7 @@ def _create_worktrees(
 
 def _execute_candidates(
     config: EvalConfig,
-    prompt: str,
+    specs: list[CandidateSpec],
     client: OpencodeClient,
     manager: GitWorktreeManager,
     manifest: Manifest,
@@ -166,9 +286,19 @@ def _execute_candidates(
 ) -> list[dict[str, Any]]:
     lock = threading.Lock()
     results: list[dict[str, Any]] = []
+    specs_by_id = {spec.id: spec for spec in specs}
 
     def run_one(record: CandidateManifestRecord) -> dict[str, Any]:
-        result = _execute_candidate(config, prompt, client, manager, manifest, record, console, lock)
+        result = _execute_candidate(
+            config,
+            specs_by_id[record.id].prompt,
+            client,
+            manager,
+            manifest,
+            record,
+            console,
+            lock,
+        )
         with lock:
             results.append(result)
         return result
@@ -214,7 +344,7 @@ def _execute_candidate(
         session_id = _session_id(session)
         _validate_session_directory(session, worktree)
         _update_manifest(manifest, record, session_id=session_id, status="running", lock=lock)
-        console.print(f"[{record.id}] session: {session_id}", markup=False)
+        console.print(f"{_record_prefix(record)} session: {session_id}", markup=False)
         client.session_prompt(
             worktree,
             session_id,
@@ -274,6 +404,10 @@ def _execute_candidate(
     validation_status = "passed" if validation.get("passed") else "failed"
     candidate_result = {
         "candidate_id": record.id,
+        "eval_id": record.eval_id or record.id,
+        "label": record.label or record.eval_id or record.id,
+        "requested_branch_name": record.requested_branch_name,
+        "branch_name": record.branch_name,
         "status": status,
         "worktree_path": str(worktree),
         "session_id": session_id,
@@ -303,7 +437,10 @@ def _execute_candidate(
         write_json(result_dir / "error.json", error.to_dict())
     write_json(result_dir / "result.json", candidate_result)
     _update_manifest(manifest, record, session_id=session_id, status=status, lock=lock)
-    console.print(f"[{record.id}] status: {status}; validation: {validation_status}", markup=False)
+    console.print(
+        f"{_record_prefix(record)} status: {status}; validation: {validation_status}",
+        markup=False,
+    )
     return candidate_result
 
 
@@ -369,6 +506,15 @@ def _collect_local_best_effort(manager: GitWorktreeManager, worktree: Path, resu
         return
 
 
+def _record_prefix(record: CandidateManifestRecord) -> str:
+    label = record.label or record.eval_id or record.id
+    if label == record.id:
+        return f"[{record.id}]"
+    if len(label) > 40:
+        label = f"{label[:37]}..."
+    return f"[{record.id} {label}]"
+
+
 def _run_validation(config: EvalConfig, worktree: Path, result_dir: Path) -> dict[str, Any]:
     validation_dir = result_dir / "validation"
     validation_dir.mkdir(parents=True, exist_ok=True)
@@ -395,8 +541,14 @@ def _run_validation(config: EvalConfig, worktree: Path, result_dir: Path) -> dic
         except subprocess.TimeoutExpired as exc:
             timed_out = True
             exit_code = 124
-            stdout_file.write_text((exc.stdout or "") if isinstance(exc.stdout, str) else "", encoding="utf-8")
-            stderr_file.write_text((exc.stderr or "") if isinstance(exc.stderr, str) else "", encoding="utf-8")
+            stdout_file.write_text(
+                (exc.stdout or "") if isinstance(exc.stdout, str) else "",
+                encoding="utf-8",
+            )
+            stderr_file.write_text(
+                (exc.stderr or "") if isinstance(exc.stderr, str) else "",
+                encoding="utf-8",
+            )
         completed_at = utc_now_iso()
         if command_config.required and (timed_out or exit_code != 0):
             passed = False
@@ -445,6 +597,10 @@ def _update_manifest(
         manifest.upsert_candidate(
             CandidateManifestRecord(
                 id=record.id,
+                eval_id=record.eval_id,
+                label=record.label,
+                requested_branch_name=record.requested_branch_name,
+                branch_name=record.branch_name,
                 worktree_path=record.worktree_path,
                 result_dir=record.result_dir,
                 session_id=session_id,

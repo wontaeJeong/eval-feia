@@ -9,6 +9,21 @@ eval-feia run --config examples/eval-feia.yaml
 eval-feia clean --manifest .eval-feia/runs/<run-id>/manifest.json
 ```
 
+Named evals can define a Git branch name separately from the human-readable label used in
+logs and summaries:
+
+```yaml
+evals:
+  - id: command-body-test
+    prompt: "..."
+    branch_name: "eval/command-body-test"
+    label: "command body test"
+```
+
+If a requested branch collides, eval-feia resolves a unique name such as
+`eval/command-body-test-2` and records that actual value in `result.json` and
+`run-summary.json`.
+
 ## Install For Development
 
 ```bash
