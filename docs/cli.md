@@ -16,7 +16,7 @@ Use `--prompt-file` when the prompt is stored on disk:
 eval-feia run --prompt-file ./prompt.md --repo . --branch HEAD --attempts 3 --command bash --output-dir ./.eval-feia/runs
 ```
 
-For a one-off eval, inline prompt, branch, and label defaults can be supplied directly:
+For a one-off eval, inline prompt, branch, and a run-level label can be supplied directly:
 
 ```bash
 eval-feia run "..." --label "foo test"
@@ -44,8 +44,8 @@ The command prints:
 - run ID
 - repository path, base ref/SHA, output directory, worktree root, execution mode, and
   validation command count
-- generated worktree paths
-- eval id, display label, branch name, base ref/SHA, and worktree path
+- generated worktree table with candidate, branch, and path details
+- run label, branch name, base ref/SHA, and worktree path
 - per-candidate session IDs
 - per-candidate status updates
 - final summary table
@@ -61,8 +61,8 @@ The command writes:
 - opencode diff
 - local git diff
 - validation result
-- result JSON and summary JSON with `label`, `base_ref`, `base_sha`, `branch_name`,
-  `worktree_path`, `session_id`, and status
+- result JSON and summary JSON with run-level `label`, `base_ref`, `base_sha`,
+  `branch_name`, `worktree_path`, `session_id`, and status
 - final summary markdown and JSON
 
 ### Exit codes

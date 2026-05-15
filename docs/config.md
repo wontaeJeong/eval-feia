@@ -12,7 +12,7 @@ The MVP CLI is arguments-only. It does not load YAML, JSON, or TOML config files
 - `--repo PATH`: git repository path. Defaults to the current directory.
 - `--branch REF`: base ref for generated worktrees. Defaults to `HEAD`.
 - `--attempts N`: number of candidates to run. Defaults to `1`.
-- `--label TEXT`: human-readable label used in logs and summaries.
+- `--label TEXT`: run-level human-readable label used in logs and summaries.
 - `--command NAME`: optional opencode slash command. A leading slash is accepted and stripped before sending the HTTP request body.
 - `--output-dir PATH`: run output root. Defaults to `.eval-feia/runs`.
 
