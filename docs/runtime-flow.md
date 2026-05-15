@@ -41,14 +41,11 @@ sanitized, validated with `git check-ref-format --branch`, and resolved to a uni
 the requested branch or worktree path already exists. Worktree directory paths stay compact:
 the run ID is the parent directory and the candidate ID is the leaf directory.
 
-Print each resolved value immediately:
+Print created worktrees as a compact CLI table:
 
 ```text
-[1/3] candidate: command-body-test
-[1/3] eval: command-body-test
-[1/3] label: command body test
-[1/3] branch: eval/<run-id>/command-body-test
-[1/3] worktree: /abs/path/.eval-feia/worktrees/<run-id>/command-body-test
+#    CANDIDATE          BRANCH                              WORKTREE
+1/3  command-body-test  eval/<run-id>/command-body-test     /abs/path/.eval-feia/worktrees/<run-id>/command-body-test
 ```
 
 Record each worktree and its actual branch name in `manifest.json` as soon as it is created.
@@ -140,17 +137,19 @@ At the end of `run`, always print and write:
 
 ```text
 Run ID: <run-id>
+Label: <run-label>
 Server: <server-url>
 Opencode version: <version>
 Base ref: <base-ref> (<base-sha>)
 Output: <result-dir>
 
-Candidate | Label             | Branch                     | Status | Validation | Files | Additions | Deletions | Session | Worktree
-cand-001  | command body test | eval/<run-id>/foo          | passed | passed     | 5     | 120       | 13        | ses_... | /abs/...
-cand-002  | attach healthcheck | eval/<run-id>/bar          | failed | failed     | 2     | 44        | 7         | ses_... | /abs/...
+Candidate | Branch                     | Status | Validation | Files | Additions | Deletions | Session | Worktree
+cand-001  | eval/<run-id>/foo          | passed | passed     | 5     | 120       | 13        | ses_... | /abs/...
+cand-002  | eval/<run-id>/bar          | failed | failed     | 2     | 44        | 7         | ses_... | /abs/...
 ```
 
 Also write `run-summary.md` and `run-summary.json`. JSON candidate records include
-`eval_id`, `label`, `base_ref`, `base_sha`, `requested_branch_name`, `branch_name`,
-`worktree_path`, `session_id`, and `status`; `branch_name` is the branch actually created or
-used after suffix resolution.
+`eval_id` only when it differs from the candidate ID, plus `base_ref`, `base_sha`,
+`requested_branch_name`, `branch_name`, `worktree_path`, `session_id`, and `status`;
+`branch_name` is the branch actually created or used after suffix resolution. The run label is
+recorded once at run-summary level.
