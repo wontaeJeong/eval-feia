@@ -16,8 +16,9 @@ A run can define a human-readable label used in logs and summaries:
 eval-feia run "..." --label "command body test"
 ```
 
-Generated worktree directory names include the evaluated ref and short base commit SHA, and
-`result.json` / `run-summary.json` record the created branch, base ref, and base SHA.
+Generated worktrees are grouped by run ID and candidate ID, while the created Git branch
+names include the run ID to avoid cross-run collisions. `result.json` / `run-summary.json`
+record the created branch, base ref, and base SHA.
 
 ## Install For Development
 
