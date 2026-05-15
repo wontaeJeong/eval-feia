@@ -48,7 +48,7 @@ eval-feia run --prompt-file prompt.md --repo . --branch HEAD --attempts 1
 4. `eval-feia` prints:
 
 - opencode server health/version
-- run ID, repository path, base ref/SHA, output directory, and worktree root
+- run ID, run label when provided, repository path, base ref/SHA, output directory, and worktree root
 - effective worktree paths
 - per-worktree session IDs
 - per-worktree progress and validation status
