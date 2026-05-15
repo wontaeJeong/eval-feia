@@ -33,6 +33,13 @@ def run(
         str | None,
         typer.Option("--label", help="Default human-readable eval label."),
     ] = None,
+    command: Annotated[
+        str | None,
+        typer.Option(
+            "--command",
+            help="Run an opencode slash command; the prompt is sent as command arguments.",
+        ),
+    ] = None,
     output_dir: Annotated[Path | None, typer.Option("--output-dir", help="Run output root.")] = None,
 ) -> None:
     """Create worktrees, execute opencode sessions, collect results, and summarize."""
@@ -48,6 +55,7 @@ def run(
                 prompt=prompt,
                 branch_name=branch_name,
                 label=label,
+                command=command,
                 output_dir=output_dir,
             ),
         )

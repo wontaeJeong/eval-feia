@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from eval_feia.config import EvalConfig, load_config
+from eval_feia.config import ConfigOverrides, EvalConfig, load_config
 from eval_feia.runner import _build_candidate_specs
 
 
@@ -60,6 +60,46 @@ def test_load_config_keeps_existing_prompt_file_shape_working(tmp_path: Path) ->
     assert config.evals == []
     assert config.run.candidates == 2
     assert config.run.prompt_file == prompt.resolve(strict=False)
+
+
+def test_load_config_accepts_run_command(tmp_path: Path) -> None:
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("hello", encoding="utf-8")
+    config_path = tmp_path / "eval-feia.yaml"
+    config_path.write_text(
+        f"""
+repo:
+  path: "{tmp_path}"
+run:
+  prompt_file: "{prompt}"
+  command: "/bash"
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config.run.command == "/bash"
+
+
+def test_config_override_command_wins_over_file(tmp_path: Path) -> None:
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("hello", encoding="utf-8")
+    config_path = tmp_path / "eval-feia.yaml"
+    config_path.write_text(
+        f"""
+repo:
+  path: "{tmp_path}"
+run:
+  prompt_file: "{prompt}"
+  command: "review"
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path, ConfigOverrides(command="/bash"))
+
+    assert config.run.command == "/bash"
 
 
 def test_candidate_spec_fallbacks_use_eval_id_then_index() -> None:

@@ -60,6 +60,7 @@ class RunConfig(BaseModel):
     label: str | None = None
     agent: str | None = None
     model: ModelConfig | dict[str, Any] | None = None
+    command: str | None = None
     delete_sessions_after_collect: bool = False
 
 
@@ -143,6 +144,7 @@ class ConfigOverrides(BaseModel):
     prompt: str | None = None
     branch_name: str | None = None
     label: str | None = None
+    command: str | None = None
     output_dir: Path | None = None
 
 
@@ -209,6 +211,8 @@ def _apply_overrides(raw: dict[str, Any], overrides: ConfigOverrides) -> dict[st
         data["run"]["branch_name"] = overrides.branch_name
     if overrides.label is not None:
         data["run"]["label"] = overrides.label
+    if overrides.command is not None:
+        data["run"]["command"] = overrides.command
     if overrides.output_dir is not None:
         data["run"]["output_root"] = overrides.output_dir
     return data
