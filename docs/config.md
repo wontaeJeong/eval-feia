@@ -21,6 +21,7 @@ run:
   concurrency: 1
   timeout_seconds: 3600
   prompt_file: "./prompt.md"
+  command: null
   agent: "build"
   model: null
   delete_sessions_after_collect: false
@@ -91,6 +92,12 @@ Bounded concurrency. Start with `1` in MVP.
 
 Per-candidate timeout.
 
+### `run.command`
+
+Optional opencode slash command name. When omitted or blank, `eval-feia` sends the prompt through `POST /session/{id}/message` with `parts`. When set, `eval-feia` sends `POST /session/{id}/command` with the command name and the prompt text as string `arguments`.
+
+A leading slash is accepted in config or CLI input and removed before sending the HTTP body, so `/bash` is sent as `"bash"`.
+
 ### `run.agent`
 
 Optional opencode agent name passed in the message body. Example: `build`, `plan`, or a custom agent.
@@ -106,6 +113,8 @@ model:
 ```
 
 If omitted, opencode chooses the configured default.
+
+For `run.command`, `eval-feia` sends the configured model to opencode's command endpoint as `"<providerID>/<modelID>"` because that endpoint accepts a model string rather than the message endpoint's model object.
 
 ### `run.prompt` / `run.prompt_file`
 
