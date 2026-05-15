@@ -81,7 +81,7 @@ load config
   -> for each worktree:
        verify effective opencode directory
        create session
-       send prompt via POST /session/{id}/message
+       send prompt via POST /session/{id}/message, or /command when run.command is set
        wait for response or timeout
        collect session artifacts
        run local validators
