@@ -22,22 +22,18 @@ class CleanupResult:
     dry_run: bool
 
 
-def plan_cleanup(manifest: Manifest) -> list[CleanupAction]:
-    _validate_manifest_roots(manifest)
+def plan_cleanup(manifest: Manifest, manifest_path: Path | None = None) -> list[CleanupAction]:
+    _validate_manifest_roots(manifest, manifest_path)
     actions: list[CleanupAction] = []
+    worktree_root = _safe_resolved_path(manifest.worktree_root, manifest.repo.path)
+    output_dir = _safe_resolved_path(manifest.output_dir, manifest.repo.path)
+    candidate_root = output_dir / "candidates"
     for candidate in manifest.candidates:
-        worktree = candidate.worktree_path.resolve(strict=False)
-        _validate_safe_path(
-            worktree,
-            manifest,
-            allow_exact_worktree=True,
-            expected_root=manifest.worktree_root,
-        )
+        worktree = _safe_resolved_path(candidate.worktree_path, manifest.repo.path)
+        result_dir = _safe_resolved_path(candidate.result_dir, manifest.repo.path)
+        _validate_child_path(worktree, worktree_root)
+        _validate_child_path(result_dir, candidate_root)
         actions.append(CleanupAction("worktree", worktree))
-    worktree_root = manifest.worktree_root.resolve(strict=False)
-    output_dir = manifest.output_dir.resolve(strict=False)
-    _validate_safe_path(worktree_root, manifest, expected_root=worktree_root)
-    _validate_safe_path(output_dir, manifest, expected_root=output_dir)
     actions.append(CleanupAction("directory", worktree_root))
     actions.append(CleanupAction("directory", output_dir))
     return actions
@@ -51,7 +47,7 @@ def clean_resources(
     use_git: bool = True,
 ) -> CleanupResult:
     manifest = load_manifest(manifest_path)
-    actions = plan_cleanup(manifest)
+    actions = plan_cleanup(manifest, manifest_path)
     errors: list[str] = []
     if dry_run:
         return CleanupResult(actions, errors, dry_run=True)
@@ -81,7 +77,7 @@ def _remove_worktree(
         return
     if use_git:
         try:
-            manager.remove_worktree(path, force=force)
+            manager.remove_worktree(path, force=True)
             return
         except Exception:
             if not force:
@@ -89,32 +85,39 @@ def _remove_worktree(
     shutil.rmtree(path)
 
 
-def _validate_manifest_roots(manifest: Manifest) -> None:
+def _validate_manifest_roots(manifest: Manifest, manifest_path: Path | None) -> None:
     repo_root = manifest.repo.path.resolve(strict=False)
-    for root in (manifest.output_dir.resolve(strict=False), manifest.worktree_root.resolve(strict=False)):
+    output_dir = _safe_resolved_path(manifest.output_dir, manifest.repo.path)
+    worktree_root = _safe_resolved_path(manifest.worktree_root, manifest.repo.path)
+    for root in (output_dir, worktree_root):
         _validate_basic_path(root, repo_root)
-
-
-def _validate_safe_path(
-    path: Path,
-    manifest: Manifest,
-    *,
-    expected_root: Path,
-    allow_exact_worktree: bool = False,
-) -> None:
-    repo_root = manifest.repo.path.resolve(strict=False)
-    resolved = path.resolve(strict=False)
-    _validate_basic_path(resolved, repo_root)
-    if resolved.exists() and resolved.is_symlink():
-        raise CleanupSafetyError(f"refusing to delete symlink path: {resolved}")
-    root = expected_root.resolve(strict=False)
-    if _is_relative_to(resolved, root):
-        return
-    if allow_exact_worktree and any(
-        resolved == candidate.worktree_path.resolve(strict=False) for candidate in manifest.candidates
+    if output_dir.name != manifest.run_id:
+        raise CleanupSafetyError("manifest output_dir must be the run_id directory")
+    if worktree_root.name != manifest.run_id:
+        raise CleanupSafetyError("manifest worktree_root must be the run_id directory")
+    if output_dir == worktree_root or _is_relative_to(output_dir, worktree_root) or _is_relative_to(
+        worktree_root, output_dir
     ):
-        return
-    raise CleanupSafetyError(f"refusing to delete path outside generated roots: {resolved}")
+        raise CleanupSafetyError("manifest output and worktree roots must not overlap")
+    if manifest_path is not None:
+        _validate_no_symlink_components(manifest_path)
+        expected_manifest = (output_dir / "manifest.json").resolve(strict=False)
+        actual_manifest = manifest_path.expanduser().resolve(strict=False)
+        if actual_manifest != expected_manifest:
+            raise CleanupSafetyError("manifest file must be located at output_dir/manifest.json")
+
+
+def _safe_resolved_path(path: Path, repo_path: Path) -> Path:
+    repo_root = repo_path.resolve(strict=False)
+    _validate_no_symlink_components(path)
+    resolved = path.expanduser().resolve(strict=False)
+    _validate_basic_path(resolved, repo_root)
+    return resolved
+
+
+def _validate_child_path(path: Path, root: Path) -> None:
+    if path == root or not _is_relative_to(path, root):
+        raise CleanupSafetyError(f"refusing to delete path outside generated roots: {path}")
 
 
 def _validate_basic_path(path: Path, repo_root: Path) -> None:
@@ -127,6 +130,16 @@ def _validate_basic_path(path: Path, repo_root: Path) -> None:
         raise CleanupSafetyError(f"refusing to delete home directory: {path}")
     if path == repo_root:
         raise CleanupSafetyError(f"refusing to delete repository root: {path}")
+
+
+def _validate_no_symlink_components(path: Path) -> None:
+    expanded = path.expanduser()
+    current = Path(expanded.anchor) if expanded.is_absolute() else Path()
+    parts = expanded.parts[1:] if expanded.is_absolute() else expanded.parts
+    for part in parts:
+        current = current / part
+        if current.exists() and current.is_symlink():
+            raise CleanupSafetyError(f"refusing to delete symlink path: {current}")
 
 
 def _is_relative_to(path: Path, root: Path) -> bool:

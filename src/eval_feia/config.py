@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -18,6 +19,14 @@ class ServerConfig(BaseModel):
     health_retries: int = Field(default=10, ge=1)
     health_interval_ms: int = Field(default=500, ge=0)
     health_timeout_seconds: float = Field(default=2.0, gt=0)
+
+    @field_validator("url")
+    @classmethod
+    def safe_url(cls, value: str) -> str:
+        parsed = urlsplit(value)
+        if parsed.username or parsed.password or parsed.query or parsed.fragment:
+            raise ValueError("server.url must not include credentials, query, or fragment")
+        return value
 
     def password(self) -> str | None:
         if not self.password_env:
