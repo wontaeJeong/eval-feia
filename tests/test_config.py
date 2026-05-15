@@ -2,33 +2,83 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from eval_feia.config import ConfigOverrides, EvalConfig, load_config
+import pytest
+
+from eval_feia.config import EvalConfig, build_config, resolve_config_paths
+from eval_feia.errors import ConfigError
 from eval_feia.runner import _build_candidate_specs
 
 
-def test_load_config_parses_eval_branch_name_and_label(tmp_path: Path) -> None:
-    config_path = tmp_path / "eval-feia.yaml"
-    config_path.write_text(
-        f"""
-repo:
-  path: "{tmp_path}"
-run:
-  output_root: "{tmp_path / '.eval-feia' / 'runs'}"
-  concurrency: 2
-evals:
-  - id: command-body-test
-    prompt: "Do a command body test."
-    branch_name: "eval/command-body-test"
-    label: "command body test"
-  - id: attach-healthcheck
-    prompt: "Do an attach healthcheck."
-    branch_name: "eval/attach-healthcheck"
-    label: "attach healthcheck"
-""",
-        encoding="utf-8",
+def test_build_config_maps_cli_inputs_and_resolves_paths(tmp_path: Path) -> None:
+    prompt = tmp_path / "prompt.md"
+    output_dir = tmp_path / "runs"
+    prompt.write_text("hello", encoding="utf-8")
+
+    config = build_config(
+        server_url="http://opencode.test",
+        repo=Path("repo"),
+        base_ref="main",
+        candidates=3,
+        prompt_file=Path("prompt.md"),
+        label="foo test",
+        command="/bash",
+        output_dir=Path("runs"),
+        base_dir=tmp_path,
     )
 
-    config = load_config(config_path)
+    assert config.server.url == "http://opencode.test"
+    assert config.repo.path == (tmp_path / "repo").resolve(strict=False)
+    assert config.repo.base_ref == "main"
+    assert config.run.candidates == 3
+    assert config.run.prompt_file == prompt.resolve(strict=False)
+    assert config.run.label == "foo test"
+    assert config.run.command == "/bash"
+    assert config.run.output_root == output_dir.resolve(strict=False)
+
+
+def test_build_config_accepts_inline_prompt(tmp_path: Path) -> None:
+    config = build_config(prompt="hello from cli", base_dir=tmp_path)
+
+    assert config.run.prompt == "hello from cli"
+    assert config.run.prompt_file is None
+
+
+def test_build_config_rejects_missing_prompt(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError, match="run.prompt_file or run.prompt is required"):
+        build_config(base_dir=tmp_path)
+
+
+def test_build_config_rejects_prompt_and_prompt_file_together(tmp_path: Path) -> None:
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("hello", encoding="utf-8")
+
+    with pytest.raises(ConfigError, match="mutually exclusive"):
+        build_config(prompt="hello inline", prompt_file=prompt, base_dir=tmp_path)
+
+
+def test_eval_config_accepts_eval_branch_name_and_label(tmp_path: Path) -> None:
+    config = EvalConfig.model_validate(
+        {
+            "repo": {"path": tmp_path},
+            "run": {"output_root": tmp_path / ".eval-feia" / "runs", "concurrency": 2},
+            "evals": [
+                {
+                    "id": "command-body-test",
+                    "prompt": "Do a command body test.",
+                    "branch_name": "eval/command-body-test",
+                    "label": "command body test",
+                },
+                {
+                    "id": "attach-healthcheck",
+                    "prompt": "Do an attach healthcheck.",
+                    "branch_name": "eval/attach-healthcheck",
+                    "label": "attach healthcheck",
+                },
+            ],
+        }
+    )
+
+    config = resolve_config_paths(config, tmp_path)
 
     assert config.run.candidates == 2
     assert config.evals[0].branch_name == "eval/command-body-test"
@@ -37,69 +87,34 @@ evals:
     assert config.evals[1].label == "attach healthcheck"
 
 
-def test_load_config_keeps_existing_prompt_file_shape_working(tmp_path: Path) -> None:
+def test_eval_config_keeps_prompt_file_shape_working(tmp_path: Path) -> None:
     prompt = tmp_path / "prompt.md"
     prompt.write_text("legacy prompt\n", encoding="utf-8")
-    config_path = tmp_path / "eval-feia.json"
-    config_path.write_text(
-        f"""
-{{
-  "repo": {{"path": "{tmp_path}"}},
-  "run": {{
-    "candidates": 2,
-    "concurrency": 1,
-    "prompt_file": "{prompt}"
-  }}
-}}
-""",
-        encoding="utf-8",
-    )
 
-    config = load_config(config_path)
+    config = EvalConfig.model_validate(
+        {
+            "repo": {"path": tmp_path},
+            "run": {"candidates": 2, "concurrency": 1, "prompt_file": prompt},
+        }
+    )
+    config = resolve_config_paths(config, tmp_path)
 
     assert config.evals == []
     assert config.run.candidates == 2
     assert config.run.prompt_file == prompt.resolve(strict=False)
 
 
-def test_load_config_accepts_run_command(tmp_path: Path) -> None:
+def test_eval_item_rejects_prompt_and_prompt_file_together(tmp_path: Path) -> None:
     prompt = tmp_path / "prompt.md"
     prompt.write_text("hello", encoding="utf-8")
-    config_path = tmp_path / "eval-feia.yaml"
-    config_path.write_text(
-        f"""
-repo:
-  path: "{tmp_path}"
-run:
-  prompt_file: "{prompt}"
-  command: "/bash"
-""".lstrip(),
-        encoding="utf-8",
-    )
 
-    config = load_config(config_path)
-
-    assert config.run.command == "/bash"
-
-
-def test_config_override_command_wins_over_file(tmp_path: Path) -> None:
-    prompt = tmp_path / "prompt.md"
-    prompt.write_text("hello", encoding="utf-8")
-    config_path = tmp_path / "eval-feia.yaml"
-    config_path.write_text(
-        f"""
-repo:
-  path: "{tmp_path}"
-run:
-  prompt_file: "{prompt}"
-  command: "review"
-""".lstrip(),
-        encoding="utf-8",
-    )
-
-    config = load_config(config_path, ConfigOverrides(command="/bash"))
-
-    assert config.run.command == "/bash"
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        EvalConfig.model_validate(
+            {
+                "run": {"prompt": "shared prompt"},
+                "evals": [{"prompt": "hello inline", "prompt_file": prompt}],
+            }
+        )
 
 
 def test_candidate_spec_fallbacks_use_eval_id_then_index() -> None:

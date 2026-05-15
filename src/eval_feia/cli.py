@@ -7,7 +7,7 @@ import typer
 from rich.console import Console
 
 from .clean import clean_resources
-from .config import ConfigOverrides, load_config
+from .config import EvalConfig, build_config
 from .errors import CleanupSafetyError, ConfigError, EvalFeiaError, GitError, HealthError
 from .runner import run_evaluation
 
@@ -18,17 +18,42 @@ console = Console()
 
 @app.command()
 def run(
-    config: Annotated[Path | None, typer.Option("--config", help="Path to eval-feia config file.")] = None,
-    server_url: Annotated[str | None, typer.Option("--server-url", help="opencode server URL.")] = None,
-    repo: Annotated[Path | None, typer.Option("--repo", help="Git repository path.")] = None,
-    base_ref: Annotated[str | None, typer.Option("--base-ref", help="Base git ref.")] = None,
-    worktrees: Annotated[int | None, typer.Option("--worktrees", help="Number of candidates.")] = None,
-    prompt_file: Annotated[Path | None, typer.Option("--prompt-file", help="Prompt file.")] = None,
-    prompt: Annotated[str | None, typer.Option("--prompt", help="Inline prompt text.")] = None,
-    branch_name: Annotated[
+    prompt: Annotated[
         str | None,
-        typer.Option("--branch-name", help="Default branch name for a single eval/candidate."),
+        typer.Argument(
+            help="Prompt text. Omit when using --prompt-file.",
+            metavar="PROMPT",
+        ),
     ] = None,
+    server_url: Annotated[
+        str | None,
+        typer.Option(
+            "--server-url",
+            help="opencode server URL.",
+            show_default="http://127.0.0.1:4096",
+        ),
+    ] = None,
+    repo: Annotated[
+        Path | None,
+        typer.Option("--repo", help="Git repository path.", show_default="current directory"),
+    ] = None,
+    branch: Annotated[
+        str | None,
+        typer.Option(
+            "--branch",
+            help="Git branch/ref to evaluate.",
+            show_default="HEAD",
+        ),
+    ] = None,
+    attempts: Annotated[
+        int | None,
+        typer.Option(
+            "--attempts",
+            help="Number of evaluation attempts/candidates.",
+            show_default="1",
+        ),
+    ] = None,
+    prompt_file: Annotated[Path | None, typer.Option("--prompt-file", help="Prompt file.")] = None,
     label: Annotated[
         str | None,
         typer.Option("--label", help="Default human-readable eval label."),
@@ -44,20 +69,16 @@ def run(
 ) -> None:
     """Create worktrees, execute opencode sessions, collect results, and summarize."""
     try:
-        eval_config = load_config(
-            config,
-            ConfigOverrides(
-                server_url=server_url,
-                repo=repo,
-                base_ref=base_ref,
-                worktrees=worktrees,
-                prompt_file=prompt_file,
-                prompt=prompt,
-                branch_name=branch_name,
-                label=label,
-                command=command,
-                output_dir=output_dir,
-            ),
+        eval_config = _build_run_config(
+            server_url=server_url,
+            repo=repo,
+            base_ref=branch,
+            attempts=attempts,
+            prompt=prompt,
+            prompt_file=prompt_file,
+            label=label,
+            command=command,
+            output_dir=output_dir,
         )
         outcome = run_evaluation(eval_config, console=console)
     except ConfigError as exc:
@@ -78,9 +99,50 @@ def run(
     raise typer.Exit(0 if outcome.passed else 1)
 
 
+def _build_run_config(
+    *,
+    server_url: str | None,
+    repo: Path | None,
+    base_ref: str | None,
+    attempts: int | None,
+    prompt: str | None,
+    prompt_file: Path | None,
+    label: str | None,
+    command: str | None,
+    output_dir: Path | None,
+) -> EvalConfig:
+    _validate_prompt_sources(prompt, prompt_file)
+    return build_config(
+        server_url=server_url,
+        repo=repo,
+        base_ref=base_ref,
+        candidates=attempts,
+        prompt=prompt,
+        prompt_file=prompt_file,
+        label=label,
+        command=command,
+        output_dir=output_dir,
+    )
+
+
+def _validate_prompt_sources(prompt: str | None, prompt_file: Path | None) -> None:
+    prompt_sources = [
+        ("PROMPT argument", prompt),
+        ("--prompt-file", prompt_file),
+    ]
+    provided_prompt_sources = [name for name, value in prompt_sources if value is not None]
+    if len(provided_prompt_sources) > 1:
+        raise ConfigError(
+            "provide only one prompt source: " + ", ".join(provided_prompt_sources)
+        )
+
+
 @app.command()
 def clean(
-    manifest: Annotated[Path, typer.Option("--manifest", help="Manifest file to clean.")],
+    manifest: Annotated[
+        Path,
+        typer.Argument(help="Manifest file to clean.", metavar="MANIFEST"),
+    ],
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Print planned deletions only.")] = False,
     force: Annotated[bool, typer.Option("--force", help="Continue after non-critical errors.")] = False,
 ) -> None:

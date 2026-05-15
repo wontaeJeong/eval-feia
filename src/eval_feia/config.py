@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-import json
 import os
-import tomllib
 from pathlib import Path
 from typing import Any
 
-import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .errors import ConfigError
@@ -20,6 +17,7 @@ class ServerConfig(BaseModel):
     password_env: str | None = None
     health_retries: int = Field(default=10, ge=1)
     health_interval_ms: int = Field(default=500, ge=0)
+    health_timeout_seconds: float = Field(default=2.0, gt=0)
 
     def password(self) -> str | None:
         if not self.password_env:
@@ -54,14 +52,21 @@ class RunConfig(BaseModel):
     candidates: int = Field(default=1, ge=1)
     concurrency: int = Field(default=1, ge=1)
     timeout_seconds: float = Field(default=3600.0, gt=0)
-    prompt_file: Path | None = None
     prompt: str | None = None
-    branch_name: str | None = None
+    prompt_file: Path | None = None
     label: str | None = None
     agent: str | None = None
     model: ModelConfig | dict[str, Any] | None = None
     command: str | None = None
     delete_sessions_after_collect: bool = False
+
+    @model_validator(mode="after")
+    def validate_prompt_source(self) -> "RunConfig":
+        if self.prompt is not None and self.prompt_file is not None:
+            raise ValueError(
+                "run.prompt and run.prompt_file are mutually exclusive; provide only one"
+            )
+        return self
 
 
 class EvalItemConfig(BaseModel):
@@ -72,6 +77,14 @@ class EvalItemConfig(BaseModel):
     prompt_file: Path | None = None
     branch_name: str | None = None
     label: str | None = None
+
+    @model_validator(mode="after")
+    def validate_prompt_source(self) -> "EvalItemConfig":
+        if self.prompt is not None and self.prompt_file is not None:
+            raise ValueError(
+                "eval prompt and prompt_file are mutually exclusive; provide only one"
+            )
+        return self
 
 
 class ValidationCommandConfig(BaseModel):
@@ -115,7 +128,7 @@ class EvalConfig(BaseModel):
     summary: SummaryConfig = Field(default_factory=SummaryConfig)
 
     @model_validator(mode="after")
-    def validate_paths(self) -> "EvalConfig":
+    def validate_evals_and_concurrency(self) -> "EvalConfig":
         if self.evals:
             self.run.candidates = len(self.evals)
         if self.run.prompt is None and self.run.prompt_file is None:
@@ -135,87 +148,39 @@ class EvalConfig(BaseModel):
         return self
 
 
-class ConfigOverrides(BaseModel):
-    server_url: str | None = None
-    repo: Path | None = None
-    base_ref: str | None = None
-    worktrees: int | None = None
-    prompt_file: Path | None = None
-    prompt: str | None = None
-    branch_name: str | None = None
-    label: str | None = None
-    command: str | None = None
-    output_dir: Path | None = None
-
-
-def load_config(config_path: Path | None, overrides: ConfigOverrides | None = None) -> EvalConfig:
-    raw: Any
-    base_dir = Path.cwd()
-    if config_path is None:
-        raw = {"run": {}}
-    else:
-        path = config_path.expanduser().resolve(strict=False)
-        if not path.exists():
-            raise ConfigError(f"config file does not exist: {path}")
-        raw = _read_config_file(path)
-        if not isinstance(raw, dict):
-            raise ConfigError(f"config file must contain an object: {path}")
-
-    raw = _apply_overrides(raw, overrides or ConfigOverrides())
+def build_config(
+    *,
+    server_url: str | None = None,
+    repo: Path | None = None,
+    base_ref: str | None = None,
+    candidates: int | None = None,
+    prompt: str | None = None,
+    prompt_file: Path | None = None,
+    label: str | None = None,
+    command: str | None = None,
+    output_dir: Path | None = None,
+    base_dir: Path | None = None,
+) -> EvalConfig:
+    raw: dict[str, Any] = {"run": {}}
+    _set_nested(raw, "server", "url", server_url)
+    _set_nested(raw, "repo", "path", repo)
+    _set_nested(raw, "repo", "base_ref", base_ref)
+    _set_nested(raw, "run", "candidates", candidates)
+    _set_nested(raw, "run", "prompt", prompt)
+    _set_nested(raw, "run", "prompt_file", prompt_file)
+    _set_nested(raw, "run", "label", label)
+    _set_nested(raw, "run", "command", command)
+    _set_nested(raw, "run", "output_root", output_dir)
     try:
         config = EvalConfig.model_validate(raw)
     except Exception as exc:  # pydantic includes detailed validation text
         raise ConfigError(f"invalid configuration: {exc}") from exc
-
     return resolve_config_paths(config, base_dir)
 
 
-def _read_config_file(path: Path) -> Any:
-    suffix = path.suffix.lower()
-    try:
-        if suffix in {".yaml", ".yml"}:
-            with path.open("r", encoding="utf-8") as fh:
-                return yaml.safe_load(fh) or {}
-        if suffix == ".json":
-            with path.open("r", encoding="utf-8") as fh:
-                return json.load(fh)
-        if suffix == ".toml":
-            with path.open("rb") as fh:
-                return tomllib.load(fh)
-    except OSError as exc:
-        raise ConfigError(f"failed to read config file {path}: {exc}") from exc
-    except (json.JSONDecodeError, yaml.YAMLError, tomllib.TOMLDecodeError) as exc:
-        raise ConfigError(f"failed to parse config file {path}: {exc}") from exc
-    raise ConfigError(f"unsupported config format for {path}; use YAML, JSON, or TOML")
-
-
-def _apply_overrides(raw: dict[str, Any], overrides: ConfigOverrides) -> dict[str, Any]:
-    data = dict(raw)
-    data.setdefault("server", {})
-    data.setdefault("repo", {})
-    data.setdefault("run", {})
-
-    if overrides.server_url is not None:
-        data["server"]["url"] = overrides.server_url
-    if overrides.repo is not None:
-        data["repo"]["path"] = overrides.repo
-    if overrides.base_ref is not None:
-        data["repo"]["base_ref"] = overrides.base_ref
-    if overrides.worktrees is not None:
-        data["run"]["candidates"] = overrides.worktrees
-    if overrides.prompt_file is not None:
-        data["run"]["prompt_file"] = overrides.prompt_file
-    if overrides.prompt is not None:
-        data["run"]["prompt"] = overrides.prompt
-    if overrides.branch_name is not None:
-        data["run"]["branch_name"] = overrides.branch_name
-    if overrides.label is not None:
-        data["run"]["label"] = overrides.label
-    if overrides.command is not None:
-        data["run"]["command"] = overrides.command
-    if overrides.output_dir is not None:
-        data["run"]["output_root"] = overrides.output_dir
-    return data
+def _set_nested(data: dict[str, Any], section: str, key: str, value: Any | None) -> None:
+    if value is not None:
+        data.setdefault(section, {})[key] = value
 
 
 def resolve_config_paths(config: EvalConfig, base_dir: Path | None = None) -> EvalConfig:
@@ -238,8 +203,12 @@ def _resolve_path(path: Path, base_dir: Path) -> Path:
     return expanded.resolve(strict=False)
 
 
-def read_prompt(path: Path) -> str:
+def read_prompt(prompt: str | None, prompt_file: Path | None) -> str:
+    if prompt is not None:
+        return prompt
+    if prompt_file is None:
+        raise ConfigError("run.prompt or run.prompt_file is required")
     try:
-        return path.read_text(encoding="utf-8")
+        return prompt_file.read_text(encoding="utf-8")
     except OSError as exc:
-        raise ConfigError(f"failed to read prompt file {path}: {exc}") from exc
+        raise ConfigError(f"failed to read prompt file {prompt_file}: {exc}") from exc
