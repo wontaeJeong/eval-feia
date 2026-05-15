@@ -143,5 +143,6 @@ cand-002  | attach healthcheck | eval/bar       | failed | failed     | 2     | 
 ```
 
 Also write `run-summary.md` and `run-summary.json`. JSON candidate records include
-`eval_id`, `label`, `base_ref`, `base_sha`, `branch_name`, `worktree_path`, `session_id`,
-and `status`; `branch_name` is the branch actually created or used after suffix resolution.
+`eval_id`, `label`, `base_ref`, `base_sha`, `requested_branch_name`, `branch_name`,
+`worktree_path`, `session_id`, and `status`; `branch_name` is the branch actually created or
+used after suffix resolution.

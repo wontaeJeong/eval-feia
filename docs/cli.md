@@ -43,7 +43,7 @@ The command prints:
 - server health/version
 - run ID
 - generated worktree paths
-- eval id, display label, requested/resolved branch name, and worktree path
+- eval id, display label, branch name, base ref/SHA, and worktree path
 - per-candidate session IDs
 - per-candidate status updates
 - final summary table

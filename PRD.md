@@ -37,12 +37,12 @@ The MVP does not:
 opencode serve --hostname 127.0.0.1 --port 4096
 ```
 
-2. User prepares an eval config and a prompt file.
+2. User prepares a prompt string or prompt file.
 
 3. User runs:
 
 ```bash
-eval-feia run --config eval-feia.yaml
+eval-feia run --prompt-file prompt.md --repo . --branch HEAD --attempts 1
 ```
 
 4. `eval-feia` prints:
@@ -56,7 +56,7 @@ eval-feia run --config eval-feia.yaml
 5. User optionally removes generated resources:
 
 ```bash
-eval-feia clean --manifest .eval-feia/runs/<run-id>/manifest.json
+eval-feia clean .eval-feia/runs/<run-id>/manifest.json
 ```
 
 ## MVP command surface
