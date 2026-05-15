@@ -20,6 +20,7 @@ from .errors import ErrorRecord, EvalFeiaError, HealthError
 from .git_worktree import (
     GitWorktreeManager,
     LocalGitArtifacts,
+    append_branch_suffix,
     branch_name_to_path_slug,
     sanitize_branch_name,
     sanitize_path_slug,
@@ -33,7 +34,7 @@ from .manifest import (
     write_json,
     write_manifest,
 )
-from .opencode_client import OpencodeClient
+from .opencode_client import OpencodeClient, normalize_command
 from .summary import parse_numstat, print_summary, write_run_summary
 
 
@@ -69,7 +70,8 @@ def run_evaluation(
     run_id: str | None = None,
 ) -> RunOutcome:
     active_console = console if console is not None else Console()
-    specs = _build_candidate_specs(config)
+    actual_run_id = run_id or generate_run_id()
+    specs = _build_candidate_specs(config, actual_run_id)
     manager = GitWorktreeManager(config.repo.path)
     repo_root = manager.ensure_repo()
     base_sha = manager.resolve_sha(config.repo.base_ref)
@@ -86,14 +88,23 @@ def run_evaluation(
     try:
         health = _health_with_retry(client, config)
         version = str(health.get("version") or "unknown")
-        active_console.print(f"opencode server: {config.server.url}")
-        active_console.print(f"opencode version: {version}")
 
-        actual_run_id = run_id or generate_run_id()
         output_dir = (config.run.output_root / actual_run_id).resolve(strict=False)
         worktree_root = (config.repo.worktree_root / actual_run_id).resolve(strict=False)
         output_dir.mkdir(parents=True, exist_ok=False)
         (output_dir / "candidates").mkdir(parents=True, exist_ok=True)
+
+        _print_run_context(
+            active_console,
+            config,
+            run_id=actual_run_id,
+            repo_root=repo_root,
+            base_sha=base_sha,
+            version=version,
+            output_dir=output_dir,
+            worktree_root=worktree_root,
+            candidate_count=len(specs),
+        )
 
         manifest = Manifest(
             run_id=actual_run_id,
@@ -148,11 +159,12 @@ def _health_with_retry(client: OpencodeClient, config: EvalConfig) -> dict[str, 
     )
 
 
-def _build_candidate_specs(config: EvalConfig) -> list[CandidateSpec]:
+def _build_candidate_specs(config: EvalConfig, run_id: str | None = None) -> list[CandidateSpec]:
     has_explicit_evals = bool(config.evals)
     items = config.evals or [EvalItemConfig() for _ in range(1, config.run.candidates + 1)]
     total = len(items)
     used_ids: set[str] = set()
+    used_branch_names: set[str] = set()
     specs: list[CandidateSpec] = []
     for index, item in enumerate(items, start=1):
         default_id = f"cand-{index:03d}"
@@ -161,9 +173,11 @@ def _build_candidate_specs(config: EvalConfig) -> list[CandidateSpec]:
         eval_id = explicit_eval_id or candidate_id
         label = _resolved_label(item, config, explicit_eval_id, default_id, has_explicit_evals)
         requested_branch_name = item.branch_name
-        fallback_source = explicit_eval_id or label or default_id
-        fallback_branch = f"eval/{fallback_source}"
-        branch_name = sanitize_branch_name(requested_branch_name, fallback_branch)
+        fallback_source = explicit_eval_id or candidate_id
+        branch_name = _unique_branch_name(
+            _candidate_branch_name(run_id, requested_branch_name, fallback_source),
+            used_branch_names,
+        )
         specs.append(
             CandidateSpec(
                 id=candidate_id,
@@ -177,6 +191,36 @@ def _build_candidate_specs(config: EvalConfig) -> list[CandidateSpec]:
             )
         )
     return specs
+
+
+def _candidate_branch_name(
+    run_id: str | None,
+    requested_branch_name: str | None,
+    fallback_source: str,
+) -> str:
+    if run_id is None:
+        return sanitize_branch_name(requested_branch_name, f"eval/{fallback_source}")
+    run_slug = sanitize_path_slug(run_id, fallback="run")
+    source = requested_branch_name or fallback_source
+    source_leaf = branch_name_to_path_slug(_branch_source_without_default_namespace(source))
+    return sanitize_branch_name(None, f"eval/{run_slug}/{source_leaf}")
+
+
+def _unique_branch_name(branch_name: str, used_branch_names: set[str]) -> str:
+    candidate = branch_name
+    suffix = 2
+    while candidate in used_branch_names:
+        candidate = append_branch_suffix(branch_name, suffix)
+        suffix += 1
+    used_branch_names.add(candidate)
+    return candidate
+
+
+def _branch_source_without_default_namespace(value: str) -> str:
+    branch = sanitize_branch_name(value, "candidate")
+    if branch.startswith("eval/"):
+        branch = branch[len("eval/") :]
+    return branch
 
 
 def _resolved_label(
@@ -236,7 +280,7 @@ def _create_worktrees(
         result_dir.mkdir(parents=True, exist_ok=True)
         created = manager.create_branch_worktree(
             manifest.worktree_root,
-            _worktree_path_slug(manifest.repo.base_ref, manifest.repo.base_sha, spec.branch_name),
+            _worktree_path_slug(spec.id),
             config.repo.base_ref,
             spec.branch_name,
         )
@@ -512,11 +556,39 @@ def _record_prefix(record: CandidateManifestRecord) -> str:
     return f"[{record.id} {label}]"
 
 
-def _worktree_path_slug(base_ref: str, base_sha: str, branch_name: str) -> str:
-    short_sha = base_sha[:8]
-    source_slug = sanitize_path_slug(f"{base_ref}-{short_sha}", fallback=short_sha or "base")
-    branch_slug = branch_name_to_path_slug(branch_name)
-    return sanitize_path_slug(f"{source_slug}-{branch_slug}", fallback=branch_slug)
+def _print_run_context(
+    console: Console,
+    config: EvalConfig,
+    *,
+    run_id: str,
+    repo_root: Path,
+    base_sha: str,
+    version: str,
+    output_dir: Path,
+    worktree_root: Path,
+    candidate_count: int,
+) -> None:
+    console.print(f"opencode server: {config.server.url}", markup=False)
+    console.print(f"opencode version: {version}", markup=False)
+    console.print(f"run id: {run_id}", markup=False)
+    console.print(f"repository: {repo_root}", markup=False)
+    console.print(f"base ref: {config.repo.base_ref} ({base_sha})", markup=False)
+    console.print(f"output dir: {output_dir}", markup=False)
+    console.print(f"worktree root: {worktree_root}", markup=False)
+    console.print(
+        f"candidates: {candidate_count}; concurrency: {config.run.concurrency}",
+        markup=False,
+    )
+    command = normalize_command(config.run.command)
+    if command is None:
+        console.print("opencode request: message", markup=False)
+    else:
+        console.print(f"opencode request: command /{command}", markup=False)
+    console.print(f"validation commands: {len(config.validation.commands)}", markup=False)
+
+
+def _worktree_path_slug(candidate_id: str) -> str:
+    return sanitize_path_slug(candidate_id, fallback="candidate")
 
 
 def _run_validation(config: EvalConfig, worktree: Path, result_dir: Path) -> dict[str, Any]:

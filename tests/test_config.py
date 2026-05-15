@@ -141,14 +141,14 @@ def test_candidate_spec_fallbacks_use_eval_id_then_index() -> None:
         }
     )
 
-    specs = _build_candidate_specs(config)
+    specs = _build_candidate_specs(config, "run-abc123")
 
     assert specs[0].eval_id == "hello world"
     assert specs[0].label == "hello world"
-    assert specs[0].branch_name == "eval/hello-world"
+    assert specs[0].branch_name == "eval/run-abc123/hello-world"
     assert specs[1].eval_id == "cand-002"
     assert specs[1].label == "cand-002"
-    assert specs[1].branch_name == "eval/cand-002"
+    assert specs[1].branch_name == "eval/run-abc123/cand-002"
 
 
 def test_candidate_spec_label_and_branch_fallback_do_not_let_run_label_override_eval_id() -> None:
@@ -162,9 +162,24 @@ def test_candidate_spec_label_and_branch_fallback_do_not_let_run_label_override_
         }
     )
 
-    specs = _build_candidate_specs(config)
+    specs = _build_candidate_specs(config, "run-abc123")
 
     assert specs[0].label == "explicit eval"
-    assert specs[0].branch_name == "eval/explicit-eval"
+    assert specs[0].branch_name == "eval/run-abc123/explicit-eval"
     assert specs[1].label == "Label Only"
-    assert specs[1].branch_name == "eval/Label-Only"
+    assert specs[1].branch_name == "eval/run-abc123/cand-002"
+
+
+def test_candidate_spec_run_label_does_not_drive_branch_names() -> None:
+    config = EvalConfig.model_validate(
+        {
+            "run": {"prompt": "shared prompt", "candidates": 2, "label": "run label"},
+        }
+    )
+
+    specs = _build_candidate_specs(config, "run-abc123")
+
+    assert specs[0].label == "run label"
+    assert specs[0].branch_name == "eval/run-abc123/cand-001"
+    assert specs[1].label == "run label"
+    assert specs[1].branch_name == "eval/run-abc123/cand-002"
