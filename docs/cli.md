@@ -7,23 +7,22 @@ Runs the full evaluation pipeline.
 ### Usage
 
 ```bash
-eval-feia run --config eval-feia.yaml
+eval-feia run "Fix the failing tests" --repo . --branch HEAD --attempts 1
 ```
 
-Optional direct flags may override config values:
+Use `--prompt-file` when the prompt is stored on disk:
 
 ```bash
-eval-feia run   --server-url http://127.0.0.1:4096   --repo .   --base-ref HEAD   --worktrees 3   --prompt-file ./prompt.md   --command bash   --output-dir ./.eval-feia/runs
+eval-feia run --prompt-file ./prompt.md --repo . --branch HEAD --attempts 3 --command bash --output-dir ./.eval-feia/runs
 ```
 
 For a one-off eval, inline prompt, branch, and label defaults can be supplied directly:
 
 ```bash
-eval-feia run --prompt "..." --branch-name "eval/foo" --label "foo test"
+eval-feia run "..." --label "foo test"
 ```
 
-For multiple named evals, prefer top-level `evals` entries in the config file. Per-eval
-`branch_name` and `label` values take precedence over CLI defaults.
+Provide only one prompt source: the positional prompt argument or `--prompt-file`.
 
 `--command <name>` runs an opencode slash command. The prompt file content is sent to opencode as the command `arguments`. A leading slash is accepted in CLI input, so `--command /bash` sends `"bash"` in the HTTP request body.
 
@@ -32,7 +31,7 @@ For multiple named evals, prefer top-level `evals` entries in the config file. P
 - opencode server URL
 - git repository path
 - base ref
-- number of worktrees or explicit candidate list
+- number of attempts/candidates
 - prompt text or prompt file
 - optional slash command name
 - output directory
@@ -60,7 +59,7 @@ The command writes:
 - opencode diff
 - local git diff
 - validation result
-- result JSON and summary JSON with `label`, `requested_branch_name`, `branch_name`,
+- result JSON and summary JSON with `label`, `base_ref`, `base_sha`, `branch_name`,
   `worktree_path`, `session_id`, and status
 - final summary markdown and JSON
 
@@ -83,7 +82,7 @@ Removes generated resources from a previous run.
 ### Usage
 
 ```bash
-eval-feia clean --manifest .eval-feia/runs/<run-id>/manifest.json
+eval-feia clean .eval-feia/runs/<run-id>/manifest.json
 ```
 
 ### Behavior
@@ -98,7 +97,7 @@ eval-feia clean --manifest .eval-feia/runs/<run-id>/manifest.json
 ### Flags
 
 ```text
---manifest PATH      Required. Manifest file to clean.
+MANIFEST             Required. Manifest file to clean.
 --dry-run            Print planned deletions without deleting.
 --force              Continue after non-critical cleanup errors.
 ```
