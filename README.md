@@ -5,25 +5,19 @@
 The server lifecycle stays external: start `opencode serve` yourself, then run evaluations against that HTTP endpoint. The MVP exposes only `run` and `clean`.
 
 ```bash
-eval-feia run --config examples/eval-feia.yaml
-eval-feia run --config examples/eval-feia.yaml --command bash
-eval-feia clean --manifest .eval-feia/runs/<run-id>/manifest.json
+eval-feia run "Fix the issue described in README" --repo . --branch HEAD --attempts 1
+eval-feia run --prompt-file examples/prompt.md --repo . --command bash
+eval-feia clean .eval-feia/runs/<run-id>/manifest.json
 ```
 
-Named evals can define a Git branch name separately from the human-readable label used in
-logs and summaries:
+A run can define a human-readable label used in logs and summaries:
 
-```yaml
-evals:
-  - id: command-body-test
-    prompt: "..."
-    branch_name: "eval/command-body-test"
-    label: "command body test"
+```bash
+eval-feia run "..." --label "command body test"
 ```
 
-If a requested branch collides, eval-feia resolves a unique name such as
-`eval/command-body-test-2` and records that actual value in `result.json` and
-`run-summary.json`.
+Generated worktree directory names include the evaluated ref and short base commit SHA, and
+`result.json` / `run-summary.json` record the created branch, base ref, and base SHA.
 
 ## Install For Development
 
