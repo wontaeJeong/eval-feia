@@ -10,7 +10,7 @@ eval-feia run --prompt-file examples/prompt.md --repo . --command bash
 eval-feia clean .eval-feia/runs/<run-id>/manifest.json
 ```
 
-A run can define a human-readable label used in logs and summaries:
+A run can define one human-readable label used in run-level logs and summaries:
 
 ```bash
 eval-feia run "..." --label "command body test"
