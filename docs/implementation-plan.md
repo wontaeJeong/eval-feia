@@ -20,8 +20,7 @@ dependencies = [
   "typer>=0.12",
   "httpx>=0.27",
   "pydantic>=2",
-  "rich>=13",
-  "PyYAML>=6"
+  "rich>=13"
 ]
 ```
 
@@ -32,7 +31,7 @@ Dev dependencies:
 dev = ["pytest", "respx", "pytest-asyncio", "ruff", "mypy"]
 ```
 
-## Phase 1: Config and manifest
+## Phase 1: Runtime models and manifest
 
 Implement:
 
@@ -108,14 +107,13 @@ Add unit tests and fake-server integration tests. Make request-shape tests stric
 
 Add:
 
-- `examples/eval-feia.yaml`
 - `examples/prompt.md`
 - README quickstart
 - troubleshooting section
 
 ## MVP completion checklist
 
-- [ ] `eval-feia run --config examples/eval-feia.yaml` works against fake server.
+- [ ] `eval-feia run --prompt-file examples/prompt.md --repo .` works against fake server.
 - [ ] Health check retry works.
 - [ ] Worktree paths are printed.
 - [ ] Session creation uses correct directory context.

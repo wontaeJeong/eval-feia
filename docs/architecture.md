@@ -94,13 +94,7 @@ load config
 
 MVP should support sequential execution and bounded parallel execution.
 
-Recommended config:
-
-```yaml
-concurrency: 1
-```
-
-Increasing concurrency is allowed but should be bounded because multiple opencode sessions can compete for provider rate limits, filesystem IO, and CPU.
+The default concurrency is `1`. Increasing concurrency is allowed in the internal model but should be bounded because multiple opencode sessions can compete for provider rate limits, filesystem IO, and CPU.
 
 ## Directory context
 

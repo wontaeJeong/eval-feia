@@ -38,8 +38,8 @@ Verify:
 
 Verify:
 
-- config parsing accepts eval-specific `branch_name` and `label`
-- old `run.candidates` plus `run.prompt_file` configs still work
+- runtime model accepts eval-specific `branch_name` and `label`
+- `run.candidates` plus `run.prompt_file` model inputs still work
 - label falls back to eval id and then index-based candidate id
 - missing branch names fall back to safe `eval/<id>` names
 - sanitized branch names pass `git check-ref-format --branch`
@@ -89,7 +89,7 @@ The MVP should not require this test in normal CI.
 ```bash
 opencode serve --hostname 127.0.0.1 --port 4096
 
-eval-feia run --config examples/eval-feia.yaml
+eval-feia run --prompt-file examples/prompt.md --repo .
 
-eval-feia clean --manifest .eval-feia/runs/<run-id>/manifest.json --dry-run
+eval-feia clean .eval-feia/runs/<run-id>/manifest.json --dry-run
 ```
