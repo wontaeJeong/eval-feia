@@ -49,10 +49,9 @@ class RunOutcome:
 @dataclass(slots=True)
 class CandidateSpec:
     id: str
-    eval_id: str
+    eval_id: str | None
     index: int
     total: int
-    label: str
     requested_branch_name: str | None
     branch_name: str
     prompt: str
@@ -108,6 +107,7 @@ def run_evaluation(
 
         manifest = Manifest(
             run_id=actual_run_id,
+            label=_non_empty(config.run.label),
             created_at=utc_now_iso(),
             repo=RepoRecord(path=repo_root, base_ref=config.repo.base_ref, base_sha=base_sha),
             server=ServerRecord(url=config.server.url, version=version),
@@ -160,7 +160,6 @@ def _health_with_retry(client: OpencodeClient, config: EvalConfig) -> dict[str, 
 
 
 def _build_candidate_specs(config: EvalConfig, run_id: str | None = None) -> list[CandidateSpec]:
-    has_explicit_evals = bool(config.evals)
     items = config.evals or [EvalItemConfig() for _ in range(1, config.run.candidates + 1)]
     total = len(items)
     used_ids: set[str] = set()
@@ -170,8 +169,7 @@ def _build_candidate_specs(config: EvalConfig, run_id: str | None = None) -> lis
         default_id = f"cand-{index:03d}"
         explicit_eval_id = _non_empty(item.id)
         candidate_id = _unique_candidate_id(explicit_eval_id or default_id, used_ids)
-        eval_id = explicit_eval_id or candidate_id
-        label = _resolved_label(item, config, explicit_eval_id, default_id, has_explicit_evals)
+        eval_id = explicit_eval_id if explicit_eval_id != candidate_id else None
         requested_branch_name = item.branch_name
         fallback_source = explicit_eval_id or candidate_id
         branch_name = _unique_branch_name(
@@ -184,7 +182,6 @@ def _build_candidate_specs(config: EvalConfig, run_id: str | None = None) -> lis
                 eval_id=eval_id,
                 index=index,
                 total=total,
-                label=label,
                 requested_branch_name=requested_branch_name,
                 branch_name=branch_name,
                 prompt=_prompt_for_eval(config, item),
@@ -221,24 +218,6 @@ def _branch_source_without_default_namespace(value: str) -> str:
     if branch.startswith("eval/"):
         branch = branch[len("eval/") :]
     return branch
-
-
-def _resolved_label(
-    item: EvalItemConfig,
-    config: EvalConfig,
-    explicit_eval_id: str | None,
-    default_id: str,
-    has_explicit_evals: bool,
-) -> str:
-    label = _non_empty(item.label)
-    if label is not None:
-        return label
-    if explicit_eval_id is not None:
-        return explicit_eval_id
-    run_label = _non_empty(config.run.label)
-    if run_label is not None and not has_explicit_evals:
-        return run_label
-    return default_id
 
 
 def _prompt_for_eval(config: EvalConfig, item: EvalItemConfig) -> str:
@@ -284,23 +263,9 @@ def _create_worktrees(
             config.repo.base_ref,
             spec.branch_name,
         )
-        prefix = f"[{spec.index}/{spec.total}]"
-        console.print(f"{prefix} candidate: {spec.id}", markup=False)
-        console.print(f"{prefix} eval: {spec.eval_id}", markup=False)
-        console.print(f"{prefix} label: {spec.label}", markup=False)
-        if (
-            spec.requested_branch_name is not None
-            and spec.requested_branch_name != created.branch_name
-        ):
-            console.print(f"{prefix} requested branch: {spec.requested_branch_name}", markup=False)
-            console.print(f"{prefix} resolved branch: {created.branch_name}", markup=False)
-        else:
-            console.print(f"{prefix} branch: {created.branch_name}", markup=False)
-        console.print(f"{prefix} worktree: {created.path}", markup=False)
         record = CandidateManifestRecord(
             id=spec.id,
             eval_id=spec.eval_id,
-            label=spec.label,
             requested_branch_name=spec.requested_branch_name,
             branch_name=created.branch_name,
             worktree_path=created.path,
@@ -310,7 +275,49 @@ def _create_worktrees(
         manifest.upsert_candidate(record)
         write_manifest(manifest)
         records.append(record)
+    _print_created_worktrees(console, specs, records)
     return records
+
+
+def _print_created_worktrees(
+    console: Console,
+    specs: list[CandidateSpec],
+    records: list[CandidateManifestRecord],
+) -> None:
+    specs_by_id = {spec.id: spec for spec in specs}
+    rows = []
+    for record in records:
+        spec = specs_by_id[record.id]
+        rows.append(
+            (
+                f"{spec.index}/{spec.total}",
+                record.id,
+                record.branch_name or "",
+                str(record.worktree_path),
+            )
+        )
+    _print_plain_table(console, ("#", "CANDIDATE", "BRANCH", "WORKTREE"), rows)
+
+
+def _print_plain_table(
+    console: Console,
+    headers: tuple[str, ...],
+    rows: list[tuple[str, ...]],
+) -> None:
+    widths = [len(header) for header in headers[:-1]]
+    for row in rows:
+        for index, value in enumerate(row[:-1]):
+            widths[index] = max(widths[index], len(value))
+
+    header = _format_plain_table_row(headers, widths)
+    console.print(header, markup=False, soft_wrap=True)
+    for row in rows:
+        console.print(_format_plain_table_row(row, widths), markup=False, soft_wrap=True)
+
+
+def _format_plain_table_row(values: tuple[str, ...], widths: list[int]) -> str:
+    padded = [value.ljust(widths[index]) for index, value in enumerate(values[:-1])]
+    return "  ".join([*padded, values[-1]])
 
 
 def _execute_candidates(
@@ -443,11 +450,8 @@ def _execute_candidate(
     validation_status = "passed" if validation.get("passed") else "failed"
     candidate_result = {
         "candidate_id": record.id,
-        "eval_id": record.eval_id or record.id,
-        "label": record.label or record.eval_id or record.id,
         "base_ref": manifest.repo.base_ref,
         "base_sha": manifest.repo.base_sha,
-        "requested_branch_name": record.requested_branch_name,
         "branch_name": record.branch_name,
         "status": status,
         "worktree_path": str(worktree),
@@ -473,6 +477,10 @@ def _execute_candidate(
         "collection_errors": [item.to_dict() for item in collection_errors],
         "error": error.to_dict() if error else None,
     }
+    if record.eval_id is not None:
+        candidate_result["eval_id"] = record.eval_id
+    if record.requested_branch_name is not None:
+        candidate_result["requested_branch_name"] = record.requested_branch_name
     write_json(result_dir / "validation.json", validation)
     if error:
         write_json(result_dir / "error.json", error.to_dict())
@@ -548,7 +556,7 @@ def _collect_local_best_effort(manager: GitWorktreeManager, worktree: Path, resu
 
 
 def _record_prefix(record: CandidateManifestRecord) -> str:
-    label = record.label or record.eval_id or record.id
+    label = record.eval_id or record.id
     if label == record.id:
         return f"[{record.id}]"
     if len(label) > 40:
@@ -571,6 +579,8 @@ def _print_run_context(
     console.print(f"opencode server: {config.server.url}", markup=False)
     console.print(f"opencode version: {version}", markup=False)
     console.print(f"run id: {run_id}", markup=False)
+    if config.run.label:
+        console.print(f"label: {config.run.label}", markup=False)
     console.print(f"repository: {repo_root}", markup=False)
     console.print(f"base ref: {config.repo.base_ref} ({base_sha})", markup=False)
     console.print(f"output dir: {output_dir}", markup=False)
@@ -674,7 +684,6 @@ def _update_manifest(
             CandidateManifestRecord(
                 id=record.id,
                 eval_id=record.eval_id,
-                label=record.label,
                 requested_branch_name=record.requested_branch_name,
                 branch_name=record.branch_name,
                 worktree_path=record.worktree_path,

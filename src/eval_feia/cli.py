@@ -56,7 +56,7 @@ def run(
     prompt_file: Annotated[Path | None, typer.Option("--prompt-file", help="Prompt file.")] = None,
     label: Annotated[
         str | None,
-        typer.Option("--label", help="Default human-readable eval label."),
+        typer.Option("--label", help="Run-level human-readable label."),
     ] = None,
     command: Annotated[
         str | None,

@@ -69,23 +69,25 @@ def test_build_config_rejects_server_url_query_or_fragment(tmp_path: Path) -> No
         build_config(server_url="http://127.0.0.1:4096/#secret", prompt="hello", base_dir=tmp_path)
 
 
-def test_eval_config_accepts_eval_branch_name_and_label(tmp_path: Path) -> None:
+def test_eval_config_accepts_run_label_and_eval_branch_names(tmp_path: Path) -> None:
     config = EvalConfig.model_validate(
         {
             "repo": {"path": tmp_path},
-            "run": {"output_root": tmp_path / ".eval-feia" / "runs", "concurrency": 2},
+            "run": {
+                "output_root": tmp_path / ".eval-feia" / "runs",
+                "concurrency": 2,
+                "label": "command eval",
+            },
             "evals": [
                 {
                     "id": "command-body-test",
                     "prompt": "Do a command body test.",
                     "branch_name": "eval/command-body-test",
-                    "label": "command body test",
                 },
                 {
                     "id": "attach-healthcheck",
                     "prompt": "Do an attach healthcheck.",
                     "branch_name": "eval/attach-healthcheck",
-                    "label": "attach healthcheck",
                 },
             ],
         }
@@ -94,10 +96,9 @@ def test_eval_config_accepts_eval_branch_name_and_label(tmp_path: Path) -> None:
     config = resolve_config_paths(config, tmp_path)
 
     assert config.run.candidates == 2
+    assert config.run.label == "command eval"
     assert config.evals[0].branch_name == "eval/command-body-test"
-    assert config.evals[0].label == "command body test"
     assert config.evals[1].branch_name == "eval/attach-healthcheck"
-    assert config.evals[1].label == "attach healthcheck"
 
 
 def test_eval_config_keeps_prompt_file_shape_working(tmp_path: Path) -> None:
@@ -130,6 +131,16 @@ def test_eval_item_rejects_prompt_and_prompt_file_together(tmp_path: Path) -> No
         )
 
 
+def test_eval_item_rejects_per_candidate_label() -> None:
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        EvalConfig.model_validate(
+            {
+                "run": {"prompt": "shared prompt"},
+                "evals": [{"label": "not supported"}],
+            }
+        )
+
+
 def test_candidate_spec_fallbacks_use_eval_id_then_index() -> None:
     config = EvalConfig.model_validate(
         {
@@ -144,33 +155,31 @@ def test_candidate_spec_fallbacks_use_eval_id_then_index() -> None:
     specs = _build_candidate_specs(config, "run-abc123")
 
     assert specs[0].eval_id == "hello world"
-    assert specs[0].label == "hello world"
     assert specs[0].branch_name == "eval/run-abc123/hello-world"
-    assert specs[1].eval_id == "cand-002"
-    assert specs[1].label == "cand-002"
+    assert specs[1].eval_id is None
     assert specs[1].branch_name == "eval/run-abc123/cand-002"
 
 
-def test_candidate_spec_label_and_branch_fallback_do_not_let_run_label_override_eval_id() -> None:
+def test_candidate_spec_branch_fallbacks_ignore_labels() -> None:
     config = EvalConfig.model_validate(
         {
             "run": {"prompt": "shared prompt", "label": "run label"},
             "evals": [
                 {"id": "explicit eval"},
-                {"label": "Label Only"},
+                {},
             ],
         }
     )
 
     specs = _build_candidate_specs(config, "run-abc123")
 
-    assert specs[0].label == "explicit eval"
+    assert specs[0].eval_id == "explicit eval"
     assert specs[0].branch_name == "eval/run-abc123/explicit-eval"
-    assert specs[1].label == "Label Only"
+    assert specs[1].eval_id is None
     assert specs[1].branch_name == "eval/run-abc123/cand-002"
 
 
-def test_candidate_spec_run_label_does_not_drive_branch_names() -> None:
+def test_candidate_spec_run_label_is_not_candidate_metadata() -> None:
     config = EvalConfig.model_validate(
         {
             "run": {"prompt": "shared prompt", "candidates": 2, "label": "run label"},
@@ -179,7 +188,7 @@ def test_candidate_spec_run_label_does_not_drive_branch_names() -> None:
 
     specs = _build_candidate_specs(config, "run-abc123")
 
-    assert specs[0].label == "run label"
+    assert specs[0].eval_id is None
     assert specs[0].branch_name == "eval/run-abc123/cand-001"
-    assert specs[1].label == "run label"
+    assert specs[1].eval_id is None
     assert specs[1].branch_name == "eval/run-abc123/cand-002"

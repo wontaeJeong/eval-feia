@@ -12,6 +12,7 @@ def test_print_summary_renders_candidate_values_as_plain_text() -> None:
     console = Console(file=output, force_terminal=False, width=240)
     summary = {
         "run_id": "run-1",
+        "label": "[red]not markup[/red]",
         "server": {"url": "http://127.0.0.1:4096"},
         "opencode_version": "fake",
         "repo": {"base_ref": "HEAD", "base_sha": "abc123"},
@@ -19,7 +20,6 @@ def test_print_summary_renders_candidate_values_as_plain_text() -> None:
         "candidates": [
             {
                 "candidate_id": "cand-001",
-                "label": "[red]not markup[/red]",
                 "branch_name": "eval/run-1/[blue]branch[/blue]",
                 "status": "passed",
                 "validation_status": "passed",

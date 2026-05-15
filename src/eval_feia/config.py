@@ -85,7 +85,6 @@ class EvalItemConfig(BaseModel):
     prompt: str | None = None
     prompt_file: Path | None = None
     branch_name: str | None = None
-    label: str | None = None
 
     @model_validator(mode="after")
     def validate_prompt_source(self) -> "EvalItemConfig":

@@ -35,6 +35,7 @@ def write_run_summary(
     passed = all(result.get("status") == "passed" for result in candidate_results)
     summary = {
         "run_id": manifest.run_id,
+        "label": manifest.label,
         "server": manifest.server.model_dump(mode="json"),
         "opencode_version": manifest.server.version,
         "repo": manifest.repo.model_dump(mode="json"),
@@ -54,23 +55,28 @@ def render_markdown_summary(summary: dict[str, Any]) -> str:
         "",
         f"Server: {summary['server']['url']}",
         f"Opencode version: {summary.get('opencode_version') or 'unknown'}",
-        f"Base ref: {summary['repo']['base_ref']} ({summary['repo']['base_sha']})",
-        f"Output: {summary['output_dir']}",
-        "",
-        "| Candidate | Label | Branch | Status | Validation | Files | Additions | "
-        "Deletions | Session | Worktree |",
-        "|---|---|---|---|---|---:|---:|---:|---|---|",
     ]
+    if summary.get("label"):
+        lines.append(f"Label: {summary['label']}")
+    lines.extend(
+        [
+            f"Base ref: {summary['repo']['base_ref']} ({summary['repo']['base_sha']})",
+            f"Output: {summary['output_dir']}",
+            "",
+            "| Candidate | Branch | Status | Validation | Files | Additions | "
+            "Deletions | Session | Worktree |",
+            "|---|---|---|---|---:|---:|---:|---|---|",
+        ]
+    )
     for candidate in summary["candidates"]:
         stats = candidate.get("summary", {})
         validation = candidate.get("validation_status", "unknown")
         lines.append(
             (
-                "| {candidate_id} | {label} | {branch} | {status} | {validation} | "
+                "| {candidate_id} | {branch} | {status} | {validation} | "
                 "{files} | {adds} | {dels} | {session} | {worktree} |"
             ).format(
                 candidate_id=candidate.get("candidate_id", ""),
-                label=candidate.get("label", ""),
                 branch=candidate.get("branch_name", ""),
                 status=candidate.get("status", ""),
                 validation=validation,
@@ -87,6 +93,8 @@ def render_markdown_summary(summary: dict[str, Any]) -> str:
 
 def print_summary(console: Console, summary: dict[str, Any]) -> None:
     console.print(f"Run ID: {summary['run_id']}", markup=False)
+    if summary.get("label"):
+        console.print(f"Label: {summary['label']}", markup=False)
     console.print(f"Server: {summary['server']['url']}", markup=False)
     console.print(
         f"Opencode version: {summary.get('opencode_version') or 'unknown'}",
@@ -101,7 +109,6 @@ def print_summary(console: Console, summary: dict[str, Any]) -> None:
     table = Table(title="eval-feia results")
     for column in (
         "Candidate",
-        "Label",
         "Branch",
         "Status",
         "Validation",
@@ -116,7 +123,6 @@ def print_summary(console: Console, summary: dict[str, Any]) -> None:
         stats = candidate.get("summary", {})
         table.add_row(
             _plain_text(candidate.get("candidate_id", "")),
-            _plain_text(candidate.get("label", "")),
             _plain_text(candidate.get("branch_name", "")),
             _plain_text(candidate.get("status", "")),
             _plain_text(candidate.get("validation_status", "unknown")),
