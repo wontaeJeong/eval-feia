@@ -13,11 +13,19 @@
 GET /global/health
 ```
 
-7. Print health result:
+7. Print health and run context:
 
 ```text
 opencode server: http://127.0.0.1:4096
 opencode version: <version>
+run id: <run-id>
+repository: <repo-root>
+base ref: <base-ref> (<base-sha>)
+output dir: <output-dir>
+worktree root: <worktree-root>
+candidates: <count>; concurrency: <count>
+opencode request: message | command /<name>
+validation commands: <count>
 ```
 
 ## Worktree setup
@@ -28,10 +36,10 @@ For `N` candidates or programmatic eval entries:
 git worktree add -b <resolved-branch-name> <worktree-path> <base-ref>
 ```
 
-Each candidate gets a generated branch name. The name is sanitized, validated with
-`git check-ref-format --branch`, and resolved to a unique branch if the requested branch or
-worktree path already exists. Worktree directory names include the base ref and short base
-SHA before the generated branch slug.
+Each candidate gets a generated branch name under `eval/<run-id>/...`. The name is
+sanitized, validated with `git check-ref-format --branch`, and resolved to a unique branch if
+the requested branch or worktree path already exists. Worktree directory paths stay compact:
+the run ID is the parent directory and the candidate ID is the leaf directory.
 
 Print each resolved value immediately:
 
@@ -39,8 +47,8 @@ Print each resolved value immediately:
 [1/3] candidate: command-body-test
 [1/3] eval: command-body-test
 [1/3] label: command body test
-[1/3] branch: eval/command-body-test
-[1/3] worktree: /abs/path/.eval-feia/worktrees/<run-id>/HEAD-abc12345-eval-command-body-test
+[1/3] branch: eval/<run-id>/command-body-test
+[1/3] worktree: /abs/path/.eval-feia/worktrees/<run-id>/command-body-test
 ```
 
 Record each worktree and its actual branch name in `manifest.json` as soon as it is created.
@@ -134,12 +142,12 @@ At the end of `run`, always print and write:
 Run ID: <run-id>
 Server: <server-url>
 Opencode version: <version>
-Base ref: <sha/ref>
+Base ref: <base-ref> (<base-sha>)
 Output: <result-dir>
 
-Candidate | Label             | Branch         | Status | Validation | Files | Additions | Deletions | Session | Worktree
-cand-001  | command body test | eval/foo-2     | passed | passed     | 5     | 120       | 13        | ses_... | /abs/...
-cand-002  | attach healthcheck | eval/bar       | failed | failed     | 2     | 44        | 7         | ses_... | /abs/...
+Candidate | Label             | Branch                     | Status | Validation | Files | Additions | Deletions | Session | Worktree
+cand-001  | command body test | eval/<run-id>/foo          | passed | passed     | 5     | 120       | 13        | ses_... | /abs/...
+cand-002  | attach healthcheck | eval/<run-id>/bar          | failed | failed     | 2     | 44        | 7         | ses_... | /abs/...
 ```
 
 Also write `run-summary.md` and `run-summary.json`. JSON candidate records include

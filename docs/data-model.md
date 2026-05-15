@@ -26,8 +26,8 @@
       "eval_id": "command-body-test",
       "label": "command body test",
       "requested_branch_name": null,
-      "branch_name": "eval/command-body-test",
-      "worktree_path": "/abs/path/repo/.eval-feia/worktrees/20260514-123456-a1b2c3/HEAD-abc12345-eval-command-body-test",
+      "branch_name": "eval/20260514-123456-a1b2c3/command-body-test",
+      "worktree_path": "/abs/path/repo/.eval-feia/worktrees/20260514-123456-a1b2c3/command-body-test",
       "result_dir": "/abs/path/repo/.eval-feia/runs/20260514-123456-a1b2c3/candidates/command-body-test",
       "session_id": "ses_...",
       "status": "completed"
@@ -36,10 +36,11 @@
 }
 ```
 
-`branch_name` is the Git branch actually created for the worktree after sanitization and
-collision suffixing. `label` is a display value only and must not be used directly as a path
-or Git ref. Worktree directory names include the base ref and short base SHA for quick
-inspection from the filesystem.
+`branch_name` is the Git branch actually created for the worktree after run scoping,
+sanitization, and collision suffixing. `label` is a display value only and must not be used
+directly as a path or Git ref. Worktree directories are intentionally simple: the run ID is the
+grouping directory, and each candidate gets a candidate-id leaf directory. Base ref and SHA
+metadata stay in manifest and result records instead of being repeated in path names.
 
 ## Candidate result
 
@@ -51,9 +52,9 @@ inspection from the filesystem.
   "base_ref": "HEAD",
   "base_sha": "abc12345...",
   "requested_branch_name": null,
-  "branch_name": "eval/command-body-test",
+  "branch_name": "eval/20260514-123456-a1b2c3/command-body-test",
   "status": "passed",
-  "worktree_path": "/abs/path/.../HEAD-abc12345-eval-command-body-test",
+  "worktree_path": "/abs/path/.../20260514-123456-a1b2c3/command-body-test",
   "session_id": "ses_...",
   "started_at": "...",
   "completed_at": "...",
