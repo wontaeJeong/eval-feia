@@ -56,6 +56,19 @@ def test_build_config_rejects_prompt_and_prompt_file_together(tmp_path: Path) ->
         build_config(prompt="hello inline", prompt_file=prompt, base_dir=tmp_path)
 
 
+def test_build_config_rejects_credentialed_server_url(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError, match="must not include credentials"):
+        build_config(server_url="http://user:secret@127.0.0.1:4096", prompt="hello", base_dir=tmp_path)
+
+
+def test_build_config_rejects_server_url_query_or_fragment(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError, match="query, or fragment"):
+        build_config(server_url="http://127.0.0.1:4096?token=secret", prompt="hello", base_dir=tmp_path)
+
+    with pytest.raises(ConfigError, match="query, or fragment"):
+        build_config(server_url="http://127.0.0.1:4096/#secret", prompt="hello", base_dir=tmp_path)
+
+
 def test_eval_config_accepts_eval_branch_name_and_label(tmp_path: Path) -> None:
     config = EvalConfig.model_validate(
         {

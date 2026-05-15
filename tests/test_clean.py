@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
 
 from eval_feia.clean import clean_resources, plan_cleanup
 from eval_feia.errors import CleanupSafetyError
+from eval_feia.git_worktree import GitWorktreeManager
 from eval_feia.manifest import (
     CandidateManifestRecord,
     Manifest,
@@ -46,11 +48,82 @@ def test_clean_refuses_repo_root_and_home_like_unsafe_paths(tmp_path: Path) -> N
         plan_cleanup(manifest)
 
 
+def test_clean_refuses_manifest_outside_output_dir(tmp_path: Path) -> None:
+    manifest = _manifest(tmp_path)
+    manifest.output_dir.mkdir(parents=True)
+    manifest.worktree_root.mkdir(parents=True)
+    manifest_path = write_manifest(manifest, tmp_path / "manifest.json")
+
+    with pytest.raises(CleanupSafetyError, match="output_dir/manifest.json"):
+        clean_resources(manifest_path, dry_run=True, use_git=False)
+
+
+def test_clean_refuses_candidate_worktree_outside_worktree_root(tmp_path: Path) -> None:
+    manifest = _manifest(tmp_path)
+    manifest.output_dir.mkdir(parents=True)
+    manifest.worktree_root.mkdir(parents=True)
+    manifest.candidates[0].worktree_path = tmp_path / "outside-worktree"
+    manifest_path = write_manifest(manifest)
+
+    with pytest.raises(CleanupSafetyError, match="outside generated roots"):
+        clean_resources(manifest_path, dry_run=True, use_git=False)
+
+
+def test_clean_refuses_candidate_result_dir_outside_output_dir(tmp_path: Path) -> None:
+    manifest = _manifest(tmp_path)
+    manifest.output_dir.mkdir(parents=True)
+    manifest.worktree_root.mkdir(parents=True)
+    manifest.candidates[0].result_dir = tmp_path / "outside-result"
+    manifest_path = write_manifest(manifest)
+
+    with pytest.raises(CleanupSafetyError, match="outside generated roots"):
+        clean_resources(manifest_path, dry_run=True, use_git=False)
+
+
+def test_clean_refuses_symlink_cleanup_target(tmp_path: Path) -> None:
+    manifest = _manifest(tmp_path)
+    manifest.output_dir.mkdir(parents=True)
+    manifest.worktree_root.mkdir(parents=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    manifest.candidates[0].worktree_path.symlink_to(outside, target_is_directory=True)
+    manifest_path = write_manifest(manifest)
+
+    with pytest.raises(CleanupSafetyError, match="symlink"):
+        clean_resources(manifest_path, dry_run=True, use_git=False)
+
+
+def test_clean_removes_dirty_git_worktree_without_force(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path / "repo")
+    manager = GitWorktreeManager(repo)
+    manifest = _manifest_for_repo(repo)
+    worktree = manager.create_branch_worktree(
+        manifest.worktree_root,
+        "HEAD-abc123-eval-cand-001",
+        "HEAD",
+        "eval/cand-001",
+    )
+    manifest.candidates[0].worktree_path = worktree.path
+    worktree.path.joinpath("dirty.txt").write_text("dirty\n", encoding="utf-8")
+    manifest.candidates[0].result_dir.mkdir(parents=True)
+    manifest_path = write_manifest(manifest)
+
+    result = clean_resources(manifest_path)
+
+    assert result.errors == []
+    assert not worktree.path.exists()
+    assert not manifest.output_dir.exists()
+
+
 def _manifest(tmp_path: Path) -> Manifest:
     repo = (tmp_path / "repo").resolve()
     repo.mkdir()
-    output = (tmp_path / "repo" / ".eval-feia" / "runs" / "run-1").resolve()
-    worktree_root = (tmp_path / "repo" / ".eval-feia" / "worktrees" / "run-1").resolve()
+    return _manifest_for_repo(repo)
+
+
+def _manifest_for_repo(repo: Path) -> Manifest:
+    output = (repo / ".eval-feia" / "runs" / "run-1").resolve()
+    worktree_root = (repo / ".eval-feia" / "worktrees" / "run-1").resolve()
     candidate = CandidateManifestRecord(
         id="cand-001",
         worktree_path=worktree_root / "cand-001",
@@ -67,3 +140,27 @@ def _manifest(tmp_path: Path) -> Manifest:
         worktree_root=worktree_root,
         candidates=[candidate],
     )
+
+
+def _init_repo(path: Path) -> Path:
+    path.mkdir(parents=True)
+    subprocess.run(["git", "init"], cwd=path, check=True, capture_output=True, text=True)
+    (path / "README.md").write_text("hello\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=path, check=True, capture_output=True, text=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=eval-feia",
+            "-c",
+            "user.email=eval-feia@example.test",
+            "commit",
+            "-m",
+            "init",
+        ],
+        cwd=path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return path.resolve()
