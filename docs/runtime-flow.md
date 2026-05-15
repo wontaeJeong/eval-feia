@@ -64,10 +64,17 @@ x-opencode-directory: <encoded-worktree>
 
 3. Validate session directory if returned.
 
-4. Send prompt synchronously:
+4. Send prompt synchronously. Without `run.command`, use:
 
 ```http
 POST /session/{id}/message
+x-opencode-directory: <encoded-worktree>
+```
+
+With `run.command`, use the slash-command endpoint instead and send the prompt text as string `arguments`:
+
+```http
+POST /session/{id}/command
 x-opencode-directory: <encoded-worktree>
 ```
 
