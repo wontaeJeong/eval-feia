@@ -115,6 +115,31 @@ class FakeOpenCodeHandler(BaseHTTPRequestHandler):
             ]
             self._json(200, {"ok": True})
             return
+        if len(parts) == 3 and parts[0] == "session" and parts[2] == "command":
+            session_id = parts[1]
+            if session_id not in SESSIONS:
+                self._json(404, {"error": "unknown session"})
+                return
+            command = str(body.get("command", ""))
+            arguments = str(body.get("arguments", ""))
+            Path(cwd, "fake-opencode-output.txt").write_text(
+                f"fake opencode handled command: {command}\n{arguments}\n",
+                encoding="utf-8",
+            )
+            SESSIONS[session_id]["messages"] = [
+                {"role": "user", "parts": [{"type": "text", "text": arguments}]},
+                {
+                    "role": "assistant",
+                    "parts": [
+                        {
+                            "type": "text",
+                            "text": "fake opencode completed the command evaluation",
+                        }
+                    ],
+                },
+            ]
+            self._json(200, {"ok": True})
+            return
         if len(parts) == 3 and parts[0] == "session" and parts[2] == "abort":
             self._json(204, {})
             return
