@@ -57,7 +57,7 @@ vcs(cwd)
 session_create(cwd, title)
 session_get(cwd, session_id)
 session_status(cwd)
-session_prompt(cwd, session_id, prompt, agent=None, model=None)
+session_prompt(cwd, session_id, prompt, command=None, agent=None, model=None)
 session_abort(cwd, session_id)
 session_messages(cwd, session_id)
 session_children(cwd, session_id)
@@ -119,7 +119,7 @@ Add:
 - [ ] Health check retry works.
 - [ ] Worktree paths are printed.
 - [ ] Session creation uses correct directory context.
-- [ ] Prompt uses REST `/session/{id}/message`.
+- [ ] Prompt uses REST `/session/{id}/message`, or `/session/{id}/command` when command mode is configured.
 - [ ] Results are collected and summarized automatically.
 - [ ] `clean --dry-run` and `clean` work safely.
 - [ ] Tests cover request context and cleanup safety.

@@ -36,7 +36,7 @@ Likely causes:
 
 MVP mitigation:
 
-- use synchronous `/session/{id}/message`
+- use synchronous `/session/{id}/message`, or `/session/{id}/command` when command mode is configured
 - enforce per-candidate timeout
 - abort on timeout
 - collect partial artifacts

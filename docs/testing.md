@@ -21,6 +21,7 @@ Mock opencode server and assert:
 - path preflight calls `/path?directory=...`
 - session create calls `/session` with encoded directory header
 - prompt calls `/session/{id}/message` with encoded directory header
+- slash command prompt calls `/session/{id}/command` with `command` and string `arguments`
 - collection calls expected GET endpoints with directory query
 - abort calls `/session/{id}/abort`
 
@@ -64,6 +65,7 @@ Implement a minimal fake server that supports:
 - `GET /path`
 - `POST /session`
 - `POST /session/{id}/message`
+- `POST /session/{id}/command`
 - `GET /session/{id}/message`
 - `GET /session/{id}/children`
 - `GET /session/{id}/diff`

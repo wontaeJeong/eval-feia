@@ -19,7 +19,7 @@ Do not continue execution in the wrong directory.
 
 ## Prompt failure
 
-If `/session/{id}/message` returns a non-2xx response:
+If the execution request returns a non-2xx response (`/session/{id}/message` by default, or `/session/{id}/command` when command mode is configured):
 
 1. Save the response body to `error.json`.
 2. Attempt to collect session state if a session ID exists.
