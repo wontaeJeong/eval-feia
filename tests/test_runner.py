@@ -419,6 +419,8 @@ def test_runner_records_resolved_branch_names_labels_and_worktrees(tmp_path: Pat
     assert manifest["label"] == "branch run label"
     assert "eval_id" not in manifest["candidates"][1]
     assert manifest["candidates"][1]["branch_name"] == "eval/branch-run/duplicate-2"
+    assert "progress: checking opencode server" in output.getvalue()
+    assert "progress: preparing output directories" in output.getvalue()
     assert "run id: branch-run" in output.getvalue()
     assert "label: branch run label" in output.getvalue()
     assert "base ref: HEAD (" in output.getvalue()
@@ -426,14 +428,25 @@ def test_runner_records_resolved_branch_names_labels_and_worktrees(tmp_path: Pat
     assert "candidates: 2; concurrency: 1" in output.getvalue()
     assert "opencode request: message" in output.getvalue()
     assert "validation commands: 0" in output.getvalue()
-    assert "CANDIDATE" in output.getvalue()
-    assert "BRANCH" in output.getvalue()
-    assert "WORKTREE" in output.getvalue()
-    assert "one" in output.getvalue()
-    assert "eval/branch-run/duplicate" in output.getvalue()
-    assert "two" in output.getvalue()
-    assert "eval/branch-run/duplicate-2" in output.getvalue()
-    assert "[1/2] candidate: one" not in output.getvalue()
+    assert "progress: creating worktrees" in output.getvalue()
+    worktree_table_output = output.getvalue().split("[one] session:", 1)[0]
+    assert "WORKTREE" in worktree_table_output
+    assert "CANDIDATE" not in worktree_table_output
+    assert "BRANCH" not in worktree_table_output
+    assert f"1  {candidates[0]['worktree_path']}" in worktree_table_output
+    assert f"2  {candidates[1]['worktree_path']}" in worktree_table_output
+    assert "1/2" not in worktree_table_output
+    assert "eval/branch-run/duplicate" not in worktree_table_output
+    assert "[1/2] candidate: one" not in worktree_table_output
+    assert "progress: running candidates" in output.getvalue()
+    assert "progress: writing final summary" in output.getvalue()
+    summary_output = output.getvalue().split("progress: writing final summary", 1)[1]
+    assert "eval-feia results" in summary_output
+    assert "CANDIDATE  BRANCH" in summary_output
+    assert "eval/branch-run/duplicate" in summary_output
+    assert "eval/branch-run/duplicate-2" in summary_output
+    assert "┏" not in summary_output
+    assert "│" not in summary_output
 
 
 def test_health_retry_uses_dedicated_timeout() -> None:
