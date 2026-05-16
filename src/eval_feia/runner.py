@@ -35,6 +35,7 @@ from .manifest import (
     write_manifest,
 )
 from .opencode_client import OpencodeClient, normalize_command
+from .plain_table import print_plain_table
 from .summary import parse_numstat, print_summary, write_run_summary
 
 
@@ -85,9 +86,11 @@ def run_evaluation(
         )
 
     try:
+        _print_progress(active_console, "checking opencode server")
         health = _health_with_retry(client, config)
         version = str(health.get("version") or "unknown")
 
+        _print_progress(active_console, "preparing output directories")
         output_dir = (config.run.output_root / actual_run_id).resolve(strict=False)
         worktree_root = (config.repo.worktree_root / actual_run_id).resolve(strict=False)
         output_dir.mkdir(parents=True, exist_ok=False)
@@ -117,7 +120,9 @@ def run_evaluation(
         )
         write_manifest(manifest)
 
+        _print_progress(active_console, "creating worktrees")
         records = _create_worktrees(config, specs, manager, manifest, active_console)
+        _print_progress(active_console, "running candidates")
         candidate_results = _execute_candidates(
             config,
             specs,
@@ -127,6 +132,7 @@ def run_evaluation(
             records,
             active_console,
         )
+        _print_progress(active_console, "writing final summary")
         summary = write_run_summary(manifest, candidate_results, health=health)
         print_summary(active_console, summary)
         return RunOutcome(actual_run_id, output_dir, summary, bool(summary["passed"]))
@@ -290,34 +296,15 @@ def _print_created_worktrees(
         spec = specs_by_id[record.id]
         rows.append(
             (
-                f"{spec.index}/{spec.total}",
-                record.id,
-                record.branch_name or "",
+                str(spec.index),
                 str(record.worktree_path),
             )
         )
-    _print_plain_table(console, ("#", "CANDIDATE", "BRANCH", "WORKTREE"), rows)
+    print_plain_table(console, ("#", "WORKTREE"), rows)
 
 
-def _print_plain_table(
-    console: Console,
-    headers: tuple[str, ...],
-    rows: list[tuple[str, ...]],
-) -> None:
-    widths = [len(header) for header in headers[:-1]]
-    for row in rows:
-        for index, value in enumerate(row[:-1]):
-            widths[index] = max(widths[index], len(value))
-
-    header = _format_plain_table_row(headers, widths)
-    console.print(header, markup=False, soft_wrap=True)
-    for row in rows:
-        console.print(_format_plain_table_row(row, widths), markup=False, soft_wrap=True)
-
-
-def _format_plain_table_row(values: tuple[str, ...], widths: list[int]) -> str:
-    padded = [value.ljust(widths[index]) for index, value in enumerate(values[:-1])]
-    return "  ".join([*padded, values[-1]])
+def _print_progress(console: Console, message: str) -> None:
+    console.print(f"progress: {message}", markup=False)
 
 
 def _execute_candidates(
