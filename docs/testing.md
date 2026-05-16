@@ -58,6 +58,8 @@ Verify:
 - validation failure
 - collection partial failure
 - concurrent candidate isolation
+- progress lines for major run phases
+- plain CLI final summary output without Rich box table borders
 
 ## Integration tests with fake opencode
 
