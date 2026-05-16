@@ -33,6 +33,15 @@ def test_print_summary_renders_candidate_values_as_plain_text() -> None:
     print_summary(console, summary)
 
     text = output.getvalue()
-    assert "[red]not markup[/red]" in text
+    assert "eval-feia results" in text
+    assert "CANDIDATE  BRANCH" in text
     assert "eval/run-1/[blue]branch[/blue]" in text
     assert "/tmp/[green]worktree[/green]" in text
+    assert "┏" not in text
+    assert "└" not in text
+    assert "Run ID:" not in text
+    assert "Label:" not in text
+    assert "Server:" not in text
+    assert "Opencode version:" not in text
+    assert "Base ref:" not in text
+    assert "Output:" not in text

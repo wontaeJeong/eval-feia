@@ -3,10 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 from rich.console import Console
-from rich.table import Table
-from rich.text import Text
 
 from .manifest import Manifest, write_json
+from .plain_table import print_plain_table
 
 
 def parse_numstat(numstat: str) -> dict[str, int]:
@@ -92,48 +91,35 @@ def render_markdown_summary(summary: dict[str, Any]) -> str:
 
 
 def print_summary(console: Console, summary: dict[str, Any]) -> None:
-    console.print(f"Run ID: {summary['run_id']}", markup=False)
-    if summary.get("label"):
-        console.print(f"Label: {summary['label']}", markup=False)
-    console.print(f"Server: {summary['server']['url']}", markup=False)
-    console.print(
-        f"Opencode version: {summary.get('opencode_version') or 'unknown'}",
-        markup=False,
-    )
-    console.print(
-        f"Base ref: {summary['repo']['base_ref']} ({summary['repo']['base_sha']})",
-        markup=False,
-    )
-    console.print(f"Output: {summary['output_dir']}", markup=False)
-
-    table = Table(title="eval-feia results")
-    for column in (
-        "Candidate",
-        "Branch",
-        "Status",
-        "Validation",
-        "Files",
-        "Additions",
-        "Deletions",
-        "Session",
-        "Worktree",
-    ):
-        table.add_column(column)
+    console.print("eval-feia results", markup=False)
+    rows = []
     for candidate in summary["candidates"]:
         stats = candidate.get("summary", {})
-        table.add_row(
-            _plain_text(candidate.get("candidate_id", "")),
-            _plain_text(candidate.get("branch_name", "")),
-            _plain_text(candidate.get("status", "")),
-            _plain_text(candidate.get("validation_status", "unknown")),
-            _plain_text(stats.get("files_changed", 0)),
-            _plain_text(stats.get("additions", 0)),
-            _plain_text(stats.get("deletions", 0)),
-            _plain_text(candidate.get("session_id") or ""),
-            _plain_text(candidate.get("worktree_path") or ""),
+        rows.append(
+            (
+                str(candidate.get("candidate_id", "")),
+                str(candidate.get("branch_name", "")),
+                str(candidate.get("status", "")),
+                str(candidate.get("validation_status", "unknown")),
+                str(stats.get("files_changed", 0)),
+                str(stats.get("additions", 0)),
+                str(stats.get("deletions", 0)),
+                str(candidate.get("session_id") or ""),
+                str(candidate.get("worktree_path") or ""),
+            )
         )
-    console.print(table)
-
-
-def _plain_text(value: object) -> Text:
-    return Text(str(value))
+    print_plain_table(
+        console,
+        (
+            "CANDIDATE",
+            "BRANCH",
+            "STATUS",
+            "VALIDATION",
+            "FILES",
+            "ADDITIONS",
+            "DELETIONS",
+            "SESSION",
+            "WORKTREE",
+        ),
+        rows,
+    )
