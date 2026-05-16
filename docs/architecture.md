@@ -76,6 +76,7 @@ Removes manifest-recorded worktrees and result directories. Does not touch openc
 ```text
 build runtime config
   -> health preflight
+  -> print run progress and context
   -> create run directory
   -> create worktrees
   -> for each worktree:
@@ -87,7 +88,7 @@ build runtime config
        run local validators
        write candidate result
   -> write run summary
-  -> print final result
+  -> print final plain result table
 ```
 
 ## Concurrency
