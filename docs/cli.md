@@ -44,12 +44,13 @@ The command prints:
 - run ID
 - repository path, base ref/SHA, output directory, worktree root, execution mode, and
   validation command count
-- generated worktree table with candidate, branch, and path details
-- run label, branch name, base ref/SHA, and worktree path
+- progress lines for server preflight, output setup, worktree creation, candidate execution,
+  and summary writing
+- generated worktree table with per-candidate index and worktree path
+- run label when provided
 - per-candidate session IDs
 - per-candidate status updates
-- final summary table
-- final output directory path
+- final plain summary table without repeating run metadata already printed before execution
 
 The command writes:
 

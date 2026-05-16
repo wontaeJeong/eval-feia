@@ -49,10 +49,11 @@ eval-feia run --prompt-file prompt.md --repo . --branch HEAD --attempts 1
 
 - opencode server health/version
 - run ID, run label when provided, repository path, base ref/SHA, output directory, and worktree root
+- progress lines for the major run phases
 - effective worktree paths
 - per-worktree session IDs
 - per-worktree progress and validation status
-- final summary with result directory paths
+- final plain summary table
 
 5. User optionally removes generated resources:
 
@@ -81,7 +82,7 @@ A run is acceptable when all of the following are true:
 - The prompt is sent through REST, not through `opencode run --attach`.
 - The tool waits until each execution is complete or times out.
 - The tool collects messages, session info, children, todo state, diff, file status, and local git diff.
-- The final console output includes a summary table and the result directory.
+- The console output includes the result directory before execution and a final plain summary table after execution.
 - `clean` only removes paths listed in the manifest.
 
 ## Success metrics
