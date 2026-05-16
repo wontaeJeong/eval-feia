@@ -44,8 +44,8 @@ the run ID is the parent directory and the candidate ID is the leaf directory.
 Print created worktrees as a compact CLI table:
 
 ```text
-#    CANDIDATE          BRANCH                              WORKTREE
-1/3  command-body-test  eval/<run-id>/command-body-test     /abs/path/.eval-feia/worktrees/<run-id>/command-body-test
+#  WORKTREE
+1  /abs/path/.eval-feia/worktrees/<run-id>/command-body-test
 ```
 
 Record each worktree and its actual branch name in `manifest.json` as soon as it is created.
@@ -133,19 +133,15 @@ MVP does not need to drive child sessions directly. It only needs to detect and 
 
 ## Final summary
 
-At the end of `run`, always print and write:
+At the end of `run`, print the result table and write the summary files. Do not repeat the
+run metadata already printed before candidate execution.
 
 ```text
-Run ID: <run-id>
-Label: <run-label>
-Server: <server-url>
-Opencode version: <version>
-Base ref: <base-ref> (<base-sha>)
-Output: <result-dir>
-
-Candidate | Branch                     | Status | Validation | Files | Additions | Deletions | Session | Worktree
-cand-001  | eval/<run-id>/foo          | passed | passed     | 5     | 120       | 13        | ses_... | /abs/...
-cand-002  | eval/<run-id>/bar          | failed | failed     | 2     | 44        | 7         | ses_... | /abs/...
+progress: writing final summary
+eval-feia results
+CANDIDATE  BRANCH             STATUS  VALIDATION  FILES  ADDITIONS  DELETIONS  SESSION  WORKTREE
+cand-001   eval/<run-id>/foo  passed  passed      5      120        13         ses_...  /abs/...
+cand-002   eval/<run-id>/bar  failed  failed      2      44         7          ses_...  /abs/...
 ```
 
 Also write `run-summary.md` and `run-summary.json`. JSON candidate records include
