@@ -131,6 +131,25 @@ def test_eval_item_rejects_prompt_and_prompt_file_together(tmp_path: Path) -> No
         )
 
 
+def test_validation_command_name_must_be_single_path_segment() -> None:
+    with pytest.raises(ValueError, match="single filename segment"):
+        EvalConfig.model_validate(
+            {
+                "run": {"prompt": "shared prompt"},
+                "validation": {"commands": [{"name": "../outside", "command": "pytest"}]},
+            }
+        )
+
+    config = EvalConfig.model_validate(
+        {
+            "run": {"prompt": "shared prompt"},
+            "validation": {"commands": [{"name": " unit-tests ", "command": "pytest"}]},
+        }
+    )
+
+    assert config.validation.commands[0].name == "unit-tests"
+
+
 def test_eval_item_rejects_per_candidate_label() -> None:
     with pytest.raises(ValueError, match="Extra inputs are not permitted"):
         EvalConfig.model_validate(

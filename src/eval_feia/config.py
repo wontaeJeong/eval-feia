@@ -109,9 +109,12 @@ class ValidationCommandConfig(BaseModel):
     @field_validator("name")
     @classmethod
     def non_empty_name(cls, value: str) -> str:
-        if not value.strip():
+        stripped = value.strip()
+        if not stripped:
             raise ValueError("validation command name must not be empty")
-        return value
+        if stripped in {".", ".."} or "/" in stripped or "\\" in stripped:
+            raise ValueError("validation command name must be a single filename segment")
+        return stripped
 
 
 class ValidationConfig(BaseModel):
