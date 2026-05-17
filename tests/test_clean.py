@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -26,6 +25,7 @@ from eval_feia.manifest import (
 )
 from eval_feia.results_store import complete_run_record, start_run_record
 from eval_feia.storage import create_run, db_path_for_output_root, default_db_path, list_runs
+from tests.helpers import init_git_repo
 
 
 def test_clean_dry_run_does_not_delete_and_clean_removes_only_manifest_paths(tmp_path: Path) -> None:
@@ -165,7 +165,7 @@ def test_clean_refuses_symlink_cleanup_target(tmp_path: Path) -> None:
 
 
 def test_clean_removes_dirty_git_worktree_without_force(tmp_path: Path) -> None:
-    repo = _init_repo(tmp_path / "repo")
+    repo = init_git_repo(tmp_path / "repo")
     manager = GitWorktreeManager(repo)
     manifest = _manifest_for_repo(repo)
     worktree = manager.create_branch_worktree(
@@ -319,27 +319,3 @@ def _manifest_for_repo(repo: Path) -> Manifest:
         db_path=db_path_for_output_root(output.parent),
         candidates=[candidate],
     )
-
-
-def _init_repo(path: Path) -> Path:
-    path.mkdir(parents=True)
-    subprocess.run(["git", "init"], cwd=path, check=True, capture_output=True, text=True)
-    (path / "README.md").write_text("hello\n", encoding="utf-8")
-    subprocess.run(["git", "add", "README.md"], cwd=path, check=True, capture_output=True, text=True)
-    subprocess.run(
-        [
-            "git",
-            "-c",
-            "user.name=eval-feia",
-            "-c",
-            "user.email=eval-feia@example.test",
-            "commit",
-            "-m",
-            "init",
-        ],
-        cwd=path,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return path.resolve()

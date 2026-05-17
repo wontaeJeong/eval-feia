@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import io
 import re
-import subprocess
 import sys
 from pathlib import Path
 from urllib.parse import unquote
@@ -15,10 +14,11 @@ from eval_feia.config import EvalConfig
 from eval_feia.opencode_client import DIRECTORY_HEADER, OpencodeClient
 from eval_feia.runner import _health_with_retry, generate_run_id, run_evaluation
 from eval_feia.storage import default_db_path, list_runs
+from tests.helpers import init_git_repo
 
 
 def test_runner_success_collects_children_validation_and_summary(tmp_path: Path) -> None:
-    repo = _init_repo(tmp_path / "repo")
+    repo = init_git_repo(tmp_path / "repo")
     prompt = repo / "prompt.md"
     prompt.write_text("Do a no-op task.\n", encoding="utf-8")
     seen: list[httpx.Request] = []
@@ -114,7 +114,7 @@ def test_runner_success_collects_children_validation_and_summary(tmp_path: Path)
 
 
 def test_runner_command_posts_command_endpoint(tmp_path: Path) -> None:
-    repo = _init_repo(tmp_path / "repo")
+    repo = init_git_repo(tmp_path / "repo")
     prompt = repo / "prompt.md"
     prompt.write_text("git status 확인해줘", encoding="utf-8")
     seen: list[httpx.Request] = []
@@ -171,7 +171,7 @@ def test_runner_command_posts_command_endpoint(tmp_path: Path) -> None:
 
 
 def test_runner_uses_inline_prompt(tmp_path: Path) -> None:
-    repo = _init_repo(tmp_path / "repo")
+    repo = init_git_repo(tmp_path / "repo")
     seen_prompt = ""
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -219,7 +219,7 @@ def test_runner_uses_inline_prompt(tmp_path: Path) -> None:
 
 
 def test_runner_timeout_aborts_and_collects_partial_artifacts(tmp_path: Path) -> None:
-    repo = _init_repo(tmp_path / "repo")
+    repo = init_git_repo(tmp_path / "repo")
     prompt = repo / "prompt.md"
     prompt.write_text("timeout\n", encoding="utf-8")
     aborted = False
@@ -273,7 +273,7 @@ def test_runner_timeout_aborts_and_collects_partial_artifacts(tmp_path: Path) ->
 
 
 def test_runner_required_validation_failure_fails_candidate(tmp_path: Path) -> None:
-    repo = _init_repo(tmp_path / "repo")
+    repo = init_git_repo(tmp_path / "repo")
     prompt = repo / "prompt.md"
     prompt.write_text("validate\n", encoding="utf-8")
 
@@ -323,7 +323,7 @@ def test_runner_required_validation_failure_fails_candidate(tmp_path: Path) -> N
 
 
 def test_runner_records_resolved_branch_names_labels_and_worktrees(tmp_path: Path) -> None:
-    repo = _init_repo(tmp_path / "repo")
+    repo = init_git_repo(tmp_path / "repo")
     sessions: dict[str, str] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -556,27 +556,3 @@ def _request_cwd(request: httpx.Request) -> str:
         return unquote(query.split("=", 1)[1])
     assert DIRECTORY_HEADER in request.headers
     return unquote(request.headers[DIRECTORY_HEADER])
-
-
-def _init_repo(path: Path) -> Path:
-    path.mkdir(parents=True)
-    subprocess.run(["git", "init"], cwd=path, check=True, capture_output=True, text=True)
-    (path / "README.md").write_text("hello\n", encoding="utf-8")
-    subprocess.run(["git", "add", "README.md"], cwd=path, check=True, capture_output=True, text=True)
-    subprocess.run(
-        [
-            "git",
-            "-c",
-            "user.name=eval-feia",
-            "-c",
-            "user.email=eval-feia@example.test",
-            "commit",
-            "-m",
-            "init",
-        ],
-        cwd=path,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return path.resolve()

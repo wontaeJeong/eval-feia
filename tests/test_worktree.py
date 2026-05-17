@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 
 from eval_feia.git_worktree import (
@@ -9,9 +8,11 @@ from eval_feia.git_worktree import (
     sanitize_branch_name,
 )
 
+from tests.helpers import current_branch, init_git_repo
+
 
 def test_git_worktree_create_collect_and_remove(tmp_path: Path) -> None:
-    repo = _init_repo(tmp_path / "repo")
+    repo = init_git_repo(tmp_path / "repo")
     manager = GitWorktreeManager(repo)
     assert manager.ensure_repo() == repo.resolve()
     sha = manager.resolve_sha("HEAD")
@@ -30,7 +31,7 @@ def test_git_worktree_create_collect_and_remove(tmp_path: Path) -> None:
 
 
 def test_git_worktree_create_branch_worktree_with_collision_suffix(tmp_path: Path) -> None:
-    repo = _init_repo(tmp_path / "repo")
+    repo = init_git_repo(tmp_path / "repo")
     manager = GitWorktreeManager(repo)
     root = tmp_path / "worktrees"
 
@@ -41,15 +42,15 @@ def test_git_worktree_create_branch_worktree_with_collision_suffix(tmp_path: Pat
     assert second.branch_name == "eval/foo-2"
     assert first.path.name == "eval-foo"
     assert second.path.name == "eval-foo-2"
-    assert _current_branch(first.path) == "eval/foo"
-    assert _current_branch(second.path) == "eval/foo-2"
+    assert current_branch(first.path) == "eval/foo"
+    assert current_branch(second.path) == "eval/foo-2"
 
     manager.remove_worktree(first.path, force=True)
     manager.remove_worktree(second.path, force=True)
 
 
 def test_branch_name_sanitization_outputs_git_valid_branch_names(tmp_path: Path) -> None:
-    repo = _init_repo(tmp_path / "repo")
+    repo = init_git_repo(tmp_path / "repo")
     manager = GitWorktreeManager(repo)
     cases = {
         "hello world": "hello-world",
@@ -65,37 +66,3 @@ def test_branch_name_sanitization_outputs_git_valid_branch_names(tmp_path: Path)
         assert manager.is_valid_branch_name(branch)
 
     assert branch_name_to_path_slug("eval/foo-bar") == "eval-foo-bar"
-
-
-def _init_repo(path: Path) -> Path:
-    path.mkdir(parents=True)
-    subprocess.run(["git", "init"], cwd=path, check=True, capture_output=True, text=True)
-    (path / "README.md").write_text("hello\n", encoding="utf-8")
-    subprocess.run(["git", "add", "README.md"], cwd=path, check=True, capture_output=True, text=True)
-    subprocess.run(
-        [
-            "git",
-            "-c",
-            "user.name=eval-feia",
-            "-c",
-            "user.email=eval-feia@example.test",
-            "commit",
-            "-m",
-            "init",
-        ],
-        cwd=path,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return path.resolve()
-
-
-def _current_branch(worktree: Path) -> str:
-    result = subprocess.run(
-        ["git", "-C", str(worktree), "branch", "--show-current"],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return result.stdout.strip()
