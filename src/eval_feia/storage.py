@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Iterator, Mapping
 
 from .manifest import utc_now_iso
+from .records import RunRow
 
 
 DB_ENV_VAR = "EVAL_FEIA_DB_PATH"
@@ -182,7 +183,7 @@ def list_runs(
     status: str | None = None,
     branch: str | None = None,
     label: str | None = None,
-) -> list[dict[str, Any]]:
+) -> list[RunRow]:
     clauses: list[str] = []
     values: list[Any] = []
     if status:
@@ -407,7 +408,7 @@ def _create_schema(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_run_events_run_id ON run_events(run_id)")
 
 
-def _record_from_output_dir(run_dir: Path) -> dict[str, Any] | None:
+def _record_from_output_dir(run_dir: Path) -> RunRow | None:
     manifest_path = run_dir / "manifest.json"
     summary_path = run_dir / "run-summary.json"
     manifest = _read_json_object(manifest_path)
@@ -523,7 +524,7 @@ def _mtime_iso(path: Path) -> str:
     return datetime.fromtimestamp(timestamp).astimezone().isoformat(timespec="seconds")
 
 
-def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
+def _row_to_dict(row: sqlite3.Row) -> RunRow:
     return {key: row[key] for key in row.keys()}
 
 
