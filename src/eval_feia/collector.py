@@ -58,15 +58,34 @@ def collect_candidate(
     )
 
 
-def collect_children_recursive(client: OpencodeClient, cwd: Path, session_id: str) -> list[JsonObject]:
+def collect_children_recursive(
+    client: OpencodeClient,
+    cwd: Path,
+    session_id: str,
+    *,
+    seen: set[str] | None = None,
+    max_depth: int = 20,
+) -> list[JsonObject]:
+    if max_depth <= 0:
+        return []
+    visited = seen if seen is not None else {session_id}
     children = client.session_children(cwd, session_id)
     records: list[JsonObject] = []
     for child_id in _extract_child_ids(children):
+        if child_id in visited:
+            continue
+        visited.add(child_id)
         record: JsonObject = {"id": child_id}
         record["session"] = client.session_get(cwd, child_id)
         record["messages"] = client.session_messages(cwd, child_id)
         record["diff"] = client.session_diff(cwd, child_id)
-        record["children"] = collect_children_recursive(client, cwd, child_id)
+        record["children"] = collect_children_recursive(
+            client,
+            cwd,
+            child_id,
+            seen=visited,
+            max_depth=max_depth - 1,
+        )
         records.append(record)
     return records
 
