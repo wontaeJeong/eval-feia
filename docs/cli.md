@@ -1,30 +1,30 @@
 # CLI Spec
 
-## Command: `eval-feia run`
+## Command: `eval-feia run-eval`
 
 Runs the full evaluation pipeline.
 
 ### Usage
 
 ```bash
-eval-feia run "Fix the failing tests" --repo . --branch HEAD --attempts 1
+eval-feia run-eval "Fix the failing tests" --repo . --branch HEAD --attempts 1
 ```
 
 Use `--prompt-file` when the prompt is stored on disk:
 
 ```bash
-eval-feia run --prompt-file ./prompt.md --repo . --branch HEAD --attempts 3 --command bash --output-dir ./.eval-feia/runs
+eval-feia run-eval --prompt-file ./prompt.md --repo . --branch HEAD --attempts 3 --command bash --output-dir ./.eval-feia/runs
 ```
 
 For a one-off eval, inline prompt, branch, and a run-level label can be supplied directly:
 
 ```bash
-eval-feia run "..." --label "foo test"
+eval-feia run-eval "..." --label "foo test"
 ```
 
 Provide only one prompt source: the positional prompt argument or `--prompt-file`.
 
-At startup `run` prints the stored result location:
+At startup `run-eval` prints the stored result location:
 
 ```text
 Run ID: 20260517-143012-a1b2c3
@@ -88,30 +88,30 @@ Recommended exit codes:
 - `6`: SQLite metadata index inspection failed
 - `130`: interrupted by user
 
-## Command: `eval-feia list` / `eval-feia ls`
+## Command: `eval-feia list-run-artifacts`
 
-Lists saved run results. `ls` is an alias for `list` and uses the same handler.
+Lists generated run artifacts from the configured run output root.
 
 ### Usage
 
 ```bash
-eval-feia list
-eval-feia ls --limit 5
-eval-feia list --output-dir ./custom-runs
-eval-feia list --json
-EVAL_FEIA_DB_PATH=/tmp/eval-feia.sqlite3 eval-feia list --json
-eval-feia ls --status success --branch HEAD
+eval-feia list-run-artifacts
+eval-feia list-run-artifacts --limit 5
+eval-feia list-run-artifacts --output-dir ./custom-runs
+eval-feia list-run-artifacts --json
+EVAL_FEIA_DB_PATH=/tmp/eval-feia.sqlite3 eval-feia list-run-artifacts --json
+eval-feia list-run-artifacts --status success --branch HEAD
 ```
 
 ### Behavior
 
-- By default, reads saved run directories under the same output root used by `run`; defaults to `.eval-feia/runs` and accepts `--output-dir` for custom roots.
+- By default, reads saved run directories under the same output root used by `run-eval`; defaults to `.eval-feia/runs` and accepts `--output-dir` for custom roots.
 - Prefers `manifest.json` and `run-summary.json` metadata when present.
 - Falls back to the run directory name, file paths, and modification time for partial or legacy results.
 - Sorts newest modified runs first.
 - Treats a missing output root as an empty list.
 - Does not delete or modify files.
-- When `EVAL_FEIA_DB_PATH` or any SQLite filter is provided, reads recent run metadata from the local SQLite index instead. If the DB is empty and file outputs already exist, list performs a best-effort idempotent backfill from `manifest.json` and `run-summary.json`.
+- When `EVAL_FEIA_DB_PATH` or any SQLite filter is provided, reads recent run metadata from the local SQLite index instead. If the DB is empty and file outputs already exist, it performs a best-effort idempotent backfill from `manifest.json` and `run-summary.json`.
 
 ### Output
 
@@ -141,55 +141,64 @@ No saved runs found.
 --json              Print saved runs as a JSON array.
 ```
 
-## Command: `eval-feia clean`
+## Command: `eval-feia clean-run-artifacts`
 
 Removes generated resources from a previous run.
 
 ### Usage
 
 ```bash
-eval-feia clean .eval-feia/runs/<run-id>/manifest.json
-eval-feia clean .eval-feia/runs/<run-id>/manifest.json --db
-eval-feia clean --results
+eval-feia clean-run-artifacts .eval-feia/runs/<run-id>/manifest.json
+eval-feia clean-run-artifacts .eval-feia/runs/<run-id>/manifest.json --delete-index
 ```
 
 ### Behavior
 
 - Reads manifest.
-- Validates each path.
+- Validates each path and eval-feia generated-root marker.
 - Removes generated git worktrees using `git worktree remove` when possible.
 - Removes candidate result directories if configured.
 - Does not stop opencode server.
-- In manifest-cleanup mode, does not remove files outside manifest-recorded generated resources.
-- Does not remove stored results unless `--results` is provided and the results root validates as eval-feia-owned.
+- Does not remove files outside manifest-recorded generated resources.
+- Does not remove stored results.
 - By default, preserves SQLite records and marks the run output as missing in `metadata_json` after deleting manifest-recorded files.
-- `clean --db` deletes only the default database under the manifest output root; custom `EVAL_FEIA_DB_PATH` databases must be removed manually.
+- `--delete-index` deletes only the default database under the manifest output root; custom `EVAL_FEIA_DB_PATH` databases must be removed manually.
 
 ### Flags
 
 ```text
-MANIFEST             Required unless --results is used by itself. Manifest file to clean.
+MANIFEST             Manifest file to clean.
 --dry-run            Print planned deletions without deleting.
 --force              Continue after non-critical cleanup errors.
---results            Remove the stored results root after printing the target path.
---db                 Also delete the SQLite metadata index database.
+--delete-index       Also delete the manifest-recorded default SQLite metadata index database.
 ```
 
-## Command Group: `eval-feia results`
+## Command: `eval-feia clean-stored-results`
+
+Removes the configured durable stored-results root.
+
+```bash
+eval-feia clean-stored-results --dry-run
+eval-feia clean-stored-results
+```
+
+The command validates that the target is an eval-feia-owned results root and rejects unexpected top-level entries before deleting anything.
+
+## Stored result inspection commands
 
 Inspect locally stored run results without contacting opencode.
 
 ```bash
-eval-feia results list
-eval-feia results show <run-id>
-eval-feia results path <run-id>
-eval-feia results cat <run-id> [file]
+eval-feia list-stored-results
+eval-feia show-stored-result <run-id>
+eval-feia print-stored-result-path <run-id>
+eval-feia print-stored-result-file <run-id> [file]
 ```
 
-- `results list` prints `run_id`, `created_at`, `status`, `branch`, `label`, `cwd`, and `output_dir` newest first. If `index.jsonl` is missing or damaged, it scans `runs/*/metadata.json`.
-- `results show <run-id>` prints metadata plus `summary.txt`, falling back to the start of `output.txt`.
-- `results path <run-id>` prints only the absolute stored run directory for scripts.
-- `results cat <run-id> [file]` prints a file inside the run directory; the default is `output.txt`. Absolute paths and `..` traversal are rejected.
+- `list-stored-results` prints `run_id`, `created_at`, `status`, `branch`, `label`, `cwd`, and `output_dir` newest first. If `index.jsonl` is missing or damaged, it scans `runs/*/metadata.json`.
+- `show-stored-result <run-id>` prints metadata plus `summary.txt`, falling back to the start of `output.txt`.
+- `print-stored-result-path <run-id>` prints only the absolute stored run directory for scripts.
+- `print-stored-result-file <run-id> [file]` prints a file inside the run directory; the default is `output.txt`. Absolute paths and `..` traversal are rejected.
 
 ## Removed or deferred commands
 
@@ -198,8 +207,10 @@ These commands are intentionally out of MVP scope:
 ```text
 serve      # server lifecycle is external
 attach     # REST execution replaces CLI attach
-collect    # run collects automatically
-summary    # run summarizes automatically
-report     # run writes report automatically
+collect    # run-eval collects automatically
+summary    # run-eval summarizes automatically
+report     # run-eval writes report automatically
 status     # not needed unless detached/background run mode is added later
 ```
+
+The former ambiguous commands `run`, `list`, `ls`, `clean`, and `results ...` are intentionally not registered; use the explicit command names above.
