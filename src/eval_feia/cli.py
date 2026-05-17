@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Mapping, cast
 
 import typer
 from rich.console import Console
@@ -22,6 +22,7 @@ from .results_store import (
     run_directory,
     start_run_record,
 )
+from .records import RunSummary
 from .runner import RunOutcome, generate_run_id, run_evaluation
 from .storage import (
     DB_ENV_VAR,
@@ -200,7 +201,7 @@ def _validate_prompt_sources(prompt: str | None, prompt_file: Path | None) -> No
         )
 
 
-def _list_runs_command(
+def _list_run_artifacts_command(
     limit: Annotated[
         int | None,
         typer.Option("--limit", help="Show only the most recent N generated run artifacts."),
@@ -221,8 +222,8 @@ def _list_runs_command(
     if limit is not None and limit < 1:
         console.print("--limit must be greater than zero", style="red")
         raise typer.Exit(2)
-    if _sqlite_list_requested(status=status, branch=branch, label=label):
-        _list_indexed_runs(
+    if _should_use_sqlite_index(status=status, branch=branch, label=label):
+        _list_indexed_run_artifacts(
             limit=limit or 20,
             output_dir=output_dir,
             status=status,
@@ -240,11 +241,11 @@ def _list_runs_command(
     raise typer.Exit(0)
 
 
-def _sqlite_list_requested(*, status: str | None, branch: str | None, label: str | None) -> bool:
+def _should_use_sqlite_index(*, status: str | None, branch: str | None, label: str | None) -> bool:
     return bool(os.environ.get(DB_ENV_VAR) or status is not None or branch is not None or label is not None)
 
 
-def _list_indexed_runs(
+def _list_indexed_run_artifacts(
     *,
     limit: int,
     output_dir: Path | None,
@@ -279,7 +280,7 @@ def _list_indexed_runs(
     )
 
 
-def _indexed_run_row(row: dict[str, object]) -> tuple[str, ...]:
+def _indexed_run_row(row: Mapping[str, object]) -> tuple[str, ...]:
     branch_or_label = str(row.get("label") or row.get("branch") or "")
     return (
         str(row.get("id") or "")[:12],
@@ -293,7 +294,7 @@ def _indexed_run_row(row: dict[str, object]) -> tuple[str, ...]:
     )
 
 
-def _display_cwd(row: dict[str, object]) -> str:
+def _display_cwd(row: Mapping[str, object]) -> str:
     value = row.get("cwd") or row.get("repo_root")
     if not value:
         return ""
@@ -313,7 +314,7 @@ def _format_duration(value: object) -> str:
     return f"{duration_ms / 1000:.1f}s"
 
 
-app.command("list-run-artifacts")(_list_runs_command)
+app.command("list-run-artifacts")(_list_run_artifacts_command)
 
 
 def _finish_completed_cli_run(
@@ -370,9 +371,10 @@ def _outcome_output_text(outcome: RunOutcome) -> str:
     summary = getattr(outcome, "summary", None)
     if not isinstance(output_dir, Path) or not isinstance(summary, dict):
         return ""
+    run_summary = cast(RunSummary, summary)
 
     chunks: list[str] = []
-    candidates = summary.get("candidates")
+    candidates = run_summary.get("candidates")
     if isinstance(candidates, list):
         for candidate in candidates:
             if not isinstance(candidate, dict):
@@ -400,7 +402,7 @@ def _outcome_output_text(outcome: RunOutcome) -> str:
     summary_file = output_dir / "run-summary.md"
     if summary_file.exists():
         return summary_file.read_text(encoding="utf-8")
-    return render_markdown_summary(summary)
+    return render_markdown_summary(run_summary)
 
 
 def _outcome_summary_text(outcome: RunOutcome, fallback: str) -> str:
@@ -411,7 +413,7 @@ def _outcome_summary_text(outcome: RunOutcome, fallback: str) -> str:
         if summary_file.exists():
             return summary_file.read_text(encoding="utf-8")
     if isinstance(summary, dict):
-        return render_markdown_summary(summary)
+        return render_markdown_summary(cast(RunSummary, summary))
     return fallback
 
 
