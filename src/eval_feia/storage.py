@@ -6,7 +6,7 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Iterator, Mapping
+from typing import Any, Iterator, Mapping, cast
 
 from .manifest import utc_now_iso
 from .records import RunRow
@@ -235,11 +235,12 @@ def backfill_from_output_dir(db_path: Path, output_root: Path) -> int:
             ).fetchone()
             if exists is not None:
                 continue
-            columns = tuple(record.keys())
+            record_data: dict[str, Any] = dict(record)
+            columns = tuple(record_data.keys())
             placeholders = ", ".join("?" for _ in columns)
             conn.execute(
                 f"INSERT OR IGNORE INTO runs ({', '.join(columns)}) VALUES ({placeholders})",
-                tuple(record[column] for column in columns),
+                tuple(record_data[column] for column in columns),
             )
             imported += 1
     return imported
@@ -525,7 +526,7 @@ def _mtime_iso(path: Path) -> str:
 
 
 def _row_to_dict(row: sqlite3.Row) -> RunRow:
-    return {key: row[key] for key in row.keys()}
+    return cast(RunRow, {key: row[key] for key in row.keys()})
 
 
 def _metadata_json(metadata: Mapping[str, Any] | None) -> str | None:

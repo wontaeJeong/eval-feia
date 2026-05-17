@@ -703,7 +703,12 @@ def _build_candidate_result(
     collection_errors: list[ErrorRecord],
     error: ErrorRecord | None,
 ) -> CandidateResult:
-    summary: CandidateSummary = {**stats, "final_output_file": "final-output.md"}
+    summary: CandidateSummary = {
+        "files_changed": stats["files_changed"],
+        "additions": stats["additions"],
+        "deletions": stats["deletions"],
+        "final_output_file": "final-output.md",
+    }
     result: CandidateResult = {
         "candidate_id": record.id,
         "base_ref": manifest.repo.base_ref,

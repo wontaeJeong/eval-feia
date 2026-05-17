@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from typing import NotRequired, TypeAlias, TypedDict
+from typing import Any, NotRequired, TypeAlias, TypedDict
 
 
-JsonValue: TypeAlias = None | bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"]
-JsonObject: TypeAlias = dict[str, JsonValue]
+JsonValue: TypeAlias = None | bool | int | float | str | list[Any] | dict[str, Any]
+JsonObject: TypeAlias = dict[str, Any]
 
 
 class ValidationCommandResult(TypedDict):
