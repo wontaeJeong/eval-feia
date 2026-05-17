@@ -46,7 +46,7 @@ Implemented base SHA resolution, run-scoped branch creation, compact worktree pa
 
 ## Phase 4: Runner
 
-Implemented `run-eval` orchestration:
+Implemented `run` orchestration:
 
 - creates durable stored result records
 - records SQLite run metadata and lifecycle events
@@ -62,14 +62,14 @@ Implemented `run-eval` orchestration:
 
 Implemented:
 
-- read-only `list-run-artifacts` for generated run artifacts
-- SQLite-backed `list-run-artifacts` when `EVAL_FEIA_DB_PATH` or index filters are used
+- read-only `list` for generated run artifacts
+- SQLite-backed `list` when `EVAL_FEIA_DB_PATH` or index filters are used
 - idempotent SQLite backfill from existing file outputs
-- read-only `list-stored-results`, `show-stored-result`, `print-stored-result-path`, and `print-stored-result-file` for durable stored result history
+- read-only `results list`, `results show`, `results path`, and `results file` for durable stored result history
 
 ## Phase 6: Clean command
 
-Implemented manifest-based cleanup with dry-run, force handling, stored-results cleanup through `clean-stored-results`, SQLite output-missing marking, and default DB deletion only through manifest-validated `clean-run-artifacts --delete-index`.
+Implemented manifest-based cleanup with dry-run, force handling, stored-results cleanup through `clean --results`, SQLite output-missing marking, and default DB deletion only through manifest-validated `clean --delete-index`.
 
 ## Phase 7: Tests
 
@@ -81,7 +81,7 @@ Documentation now covers the REST-only execution contract, direct CLI flags, com
 
 ## MVP completion checklist
 
-- [x] `eval-feia run-eval --prompt-file examples/prompt.md --repo .` works against the fake server path covered by tests.
+- [x] `eval-feia run --prompt-file examples/prompt.md --repo .` works against the fake server path covered by tests.
 - [x] Health check retry works.
 - [x] Worktree paths are printed.
 - [x] Session creation uses correct directory context.
@@ -89,6 +89,6 @@ Documentation now covers the REST-only execution contract, direct CLI flags, com
 - [x] Results are collected and summarized automatically.
 - [x] Stored result history is written and inspectable.
 - [x] SQLite metadata indexing and filtered listing work.
-- [x] `list-run-artifacts` inspects generated run artifacts read-only.
-- [x] `clean-run-artifacts --dry-run`, `clean-run-artifacts`, `clean-stored-results`, and `clean-run-artifacts --delete-index` are safety-gated.
+- [x] `list` inspects generated run artifacts read-only.
+- [x] `clean --dry-run`, `clean`, `clean --results`, and `clean --delete-index` are safety-gated.
 - [x] Tests cover request context, cleanup safety, stored results, SQLite index behavior, saved run listing, and final summary generation.

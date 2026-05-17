@@ -52,13 +52,13 @@ Verify:
 
 Verify:
 
-- `run-eval` creates durable metadata, output, summary, stdout, stderr, and run logs
-- `list-stored-results`, `show-stored-result`, `print-stored-result-path`, and `print-stored-result-file` read stored results without contacting opencode
+- `run` creates durable metadata, output, summary, stdout, stderr, and run logs
+- `results list`, `results show`, `results path`, and `results file` read stored results without contacting opencode
 - SQLite schema version 1 creates `runs` and `run_events`
 - SQLite list filters support status, branch, and label
 - saved artifact listing backfills an empty SQLite index idempotently
-- `clean-run-artifacts` requires generated-root markers and marks deleted generated outputs as missing in SQLite metadata
-- `clean-run-artifacts --delete-index` deletes only the manifest-recorded default DB and rejects custom `EVAL_FEIA_DB_PATH`
+- `clean` requires generated-root markers and marks deleted generated outputs as missing in SQLite metadata
+- `clean --delete-index` deletes only the manifest-recorded default DB and rejects custom `EVAL_FEIA_DB_PATH`
 
 ### Runner behavior
 
@@ -105,19 +105,19 @@ The MVP should not require this test in normal CI.
 ```bash
 opencode serve --hostname 127.0.0.1 --port 4096
 
-eval-feia run-eval --prompt-file examples/prompt.md --repo .
+eval-feia run --prompt-file examples/prompt.md --repo .
 
-eval-feia list-run-artifacts
+eval-feia list
 
-eval-feia list-run-artifacts --status success --branch HEAD
+eval-feia list --status success --branch HEAD
 
-eval-feia list-stored-results
+eval-feia results list
 
-eval-feia show-stored-result <run-id>
+eval-feia results show <run-id>
 
-eval-feia clean-run-artifacts .eval-feia/runs/<run-id>/manifest.json --dry-run
+eval-feia clean .eval-feia/runs/<run-id>/manifest.json --dry-run
 
-eval-feia clean-run-artifacts .eval-feia/runs/<run-id>/manifest.json --delete-index --dry-run
+eval-feia clean .eval-feia/runs/<run-id>/manifest.json --delete-index --dry-run
 
-eval-feia clean-stored-results --dry-run
+eval-feia clean --results --dry-run
 ```

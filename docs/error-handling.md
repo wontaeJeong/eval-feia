@@ -52,7 +52,7 @@ Collection is best-effort after a prompt failure or timeout. Save partial result
 
 ## Cleanup safety failure
 
-`clean-run-artifacts` should refuse to delete when:
+`clean` should refuse to delete when:
 
 - manifest is missing or invalid
 - path is empty, `/`, home directory, or repo root
