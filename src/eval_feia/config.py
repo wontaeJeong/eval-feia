@@ -10,6 +10,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from .errors import ConfigError
 
 
+DEFAULT_OUTPUT_ROOT = Path(".eval-feia/runs")
+
+
 class ServerConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -57,7 +60,7 @@ class ModelConfig(BaseModel):
 class RunConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    output_root: Path = Path(".eval-feia/runs")
+    output_root: Path = DEFAULT_OUTPUT_ROOT
     candidates: int = Field(default=1, ge=1)
     concurrency: int = Field(default=1, ge=1)
     timeout_seconds: float = Field(default=3600.0, gt=0)

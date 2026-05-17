@@ -9,6 +9,7 @@ from rich.console import Console
 from .clean import clean_resources
 from .config import EvalConfig, build_config
 from .errors import CleanupSafetyError, ConfigError, EvalFeiaError, GitError, HealthError
+from .listing import list_saved_runs, print_saved_runs, saved_runs_json
 from .runner import run_evaluation
 
 
@@ -135,6 +136,37 @@ def _validate_prompt_sources(prompt: str | None, prompt_file: Path | None) -> No
         raise ConfigError(
             "provide only one prompt source: " + ", ".join(provided_prompt_sources)
         )
+
+
+def _list_runs_command(
+    limit: Annotated[
+        int | None,
+        typer.Option("--limit", help="Show only the most recent N saved runs."),
+    ] = None,
+    output_dir: Annotated[
+        Path | None,
+        typer.Option("--output-dir", help="Run output root to inspect."),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print saved runs as a JSON array."),
+    ] = False,
+) -> None:
+    """List saved run results."""
+    if limit is not None and limit < 1:
+        console.print("--limit must be greater than zero", style="red")
+        raise typer.Exit(2)
+
+    runs = list_saved_runs(output_root=output_dir, limit=limit)
+    if json_output:
+        typer.echo(saved_runs_json(runs))
+        raise typer.Exit(0)
+    print_saved_runs(console, runs)
+    raise typer.Exit(0)
+
+
+app.command("list")(_list_runs_command)
+app.command("ls")(_list_runs_command)
 
 
 @app.command()
