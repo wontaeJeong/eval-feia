@@ -9,7 +9,7 @@ user-managed opencode serve
         ^
         | REST/SSE
         |
-eval-feia run
+eval-feia run-eval
         |
         +-- worktree candidate 001
         +-- worktree candidate 002
@@ -37,7 +37,7 @@ The CLI attach mode is useful for humans but hides several behaviors that an eva
 
 ### CLI
 
-Parses direct arguments and calls the runner. Exposes `run`, read-only `list` / `ls`, `clean`, and the read-only `results` inspection group.
+Parses direct arguments and calls the runner. Exposes `run-eval`, read-only `list-run-artifacts`, `clean-run-artifacts`, `clean-stored-results`, and read-only stored-result inspection commands.
 
 ### Runtime model builder
 
@@ -69,11 +69,11 @@ Writes machine-readable result files and human-readable markdown summaries. Prin
 
 ### Stored results store
 
-Writes durable run metadata, output, summary, and log files under `EVAL_FEIA_RESULTS_DIR` or `$HOME/.eval-feia/results`. Powers the read-only `results` command group.
+Writes durable run metadata, output, summary, and log files under `EVAL_FEIA_RESULTS_DIR` or `$HOME/.eval-feia/results`. Powers the read-only stored-result inspection commands.
 
 ### SQLite metadata index
 
-Indexes run metadata and lifecycle events in `eval-feia.sqlite3` for filtered `list` / `ls` queries. Large logs and collected opencode payloads stay in files.
+Indexes run metadata and lifecycle events in `eval-feia.sqlite3` for filtered `list-run-artifacts` queries. Large logs and collected opencode payloads stay in files.
 
 ### Cleaner
 
@@ -179,8 +179,8 @@ Candidate failure classes:
 The tool must be conservative with destructive actions:
 
 - never delete a generated worktree or run artifact path not listed in the manifest, and never delete generated roots without eval-feia marker validation
-- never delete stored result history unless `clean --results` is explicitly used and the target is a validated eval-feia results root
-- never delete the SQLite metadata index unless `clean --db` is explicitly used and the manifest records the default DB path
+- never delete stored result history unless `clean-stored-results` is explicitly used and the target is a validated eval-feia results root
+- never delete the SQLite metadata index unless `clean-run-artifacts --delete-index` is explicitly used and the manifest records the default DB path
 - never delete the repository root
 - never delete outside the configured workspace/output root unless the manifest explicitly says it is a generated git worktree
 - never kill `opencode serve`
