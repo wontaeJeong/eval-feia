@@ -9,7 +9,7 @@ user-managed opencode serve
         ^
         | REST/SSE
         |
-eval-feia run-eval
+eval-feia run
         |
         +-- worktree candidate 001
         +-- worktree candidate 002
@@ -37,7 +37,7 @@ The CLI attach mode is useful for humans but hides several behaviors that an eva
 
 ### CLI
 
-Parses direct arguments and calls the runner. Exposes `run-eval`, read-only `list-run-artifacts`, `clean-run-artifacts`, `clean-stored-results`, and read-only stored-result inspection commands.
+Parses direct arguments and calls the runner. Exposes `run`, read-only `list`, read-only `results` subcommands, and manifest/results cleanup through `clean`.
 
 ### Runtime model builder
 
@@ -73,7 +73,7 @@ Writes durable run metadata, output, summary, and log files under `EVAL_FEIA_RES
 
 ### SQLite metadata index
 
-Indexes run metadata and lifecycle events in `eval-feia.sqlite3` for filtered `list-run-artifacts` queries. Large logs and collected opencode payloads stay in files.
+Indexes run metadata and lifecycle events in `eval-feia.sqlite3` for filtered `list` queries. Large logs and collected opencode payloads stay in files.
 
 ### Cleaner
 
@@ -179,8 +179,8 @@ Candidate failure classes:
 The tool must be conservative with destructive actions:
 
 - never delete a generated worktree or run artifact path not listed in the manifest, and never delete generated roots without eval-feia marker validation
-- never delete stored result history unless `clean-stored-results` is explicitly used and the target is a validated eval-feia results root
-- never delete the SQLite metadata index unless `clean-run-artifacts --delete-index` is explicitly used and the manifest records the default DB path
+- never delete stored result history unless `clean --results` is explicitly used and the target is a validated eval-feia results root
+- never delete the SQLite metadata index unless `clean --delete-index` is explicitly used with a manifest that records the default DB path
 - never delete the repository root
 - never delete outside the configured workspace/output root unless the manifest explicitly says it is a generated git worktree
 - never kill `opencode serve`

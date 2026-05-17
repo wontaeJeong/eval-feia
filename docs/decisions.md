@@ -20,13 +20,13 @@ Rationale: the synchronous endpoint sends a message and waits for a response. As
 
 ## ADR-004: Minimal command surface
 
-Decision: MVP exposes explicit commands: `run-eval`, read-only `list-run-artifacts`, `clean-run-artifacts`, `clean-stored-results`, and read-only stored-result inspection commands.
+Decision: MVP exposes a compact command surface: `run`, read-only `list`, read-only `results` subcommands, and manifest/results cleanup through `clean`.
 
-Rationale: `run-eval` already includes execution, collection, and summary. `list-run-artifacts` discovers generated run artifacts and queries the local SQLite metadata index; stored-result inspection commands read durable local file-backed history without contacting opencode. Explicit names avoid confusion between generated artifacts and durable stored results.
+Rationale: `run` already includes execution, collection, and summary. `list` discovers generated run artifacts and queries the local SQLite metadata index; `results` subcommands read durable local file-backed history without contacting opencode. `clean` keeps destructive behavior explicit with either a manifest argument or `--results`.
 
 ## ADR-005: Manifest-based cleanup
 
-Decision: default `clean-run-artifacts` removes only generated resources recorded in the manifest; stored result history cleanup is a separate explicit `clean-stored-results` action against a validated eval-feia results root.
+Decision: default `clean <manifest>` removes only generated resources recorded in the manifest; stored result history cleanup requires an explicit `clean --results` action against a validated eval-feia results root.
 
 Rationale: worktree cleanup is destructive. Manifest-based cleanup prevents accidental deletion of unrelated files or server processes, while stored result history has a separate ownership marker and explicit cleanup path.
 
@@ -38,6 +38,6 @@ Rationale: the server process cwd is not sufficient when one server handles mult
 
 ## ADR-007: SQLite is a metadata index, not the artifact store
 
-Decision: generated artifacts and durable stored-result files remain authoritative, while SQLite indexes run metadata and lifecycle events for filtered `list-run-artifacts` queries.
+Decision: generated artifacts and durable stored-result files remain authoritative, while SQLite indexes run metadata and lifecycle events for filtered `list` queries.
 
 Rationale: large logs and opencode payloads are better kept as files. SQLite improves local querying without making cleanup depend on opaque database state.
