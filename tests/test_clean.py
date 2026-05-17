@@ -6,7 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from eval_feia.clean import clean_resources, clean_results, plan_cleanup, plan_results_cleanup
+from eval_feia.clean import (
+    clean_resources,
+    clean_results,
+    plan_cleanup,
+    plan_results_cleanup,
+    write_generated_marker,
+)
 from eval_feia.errors import CleanupSafetyError
 from eval_feia.git_worktree import GitWorktreeManager
 from eval_feia.manifest import (
@@ -29,6 +35,7 @@ def test_clean_dry_run_does_not_delete_and_clean_removes_only_manifest_paths(tmp
     candidate = manifest.candidates[0]
     candidate.worktree_path.mkdir(parents=True)
     candidate.result_dir.mkdir(parents=True)
+    _mark_generated_roots(manifest)
     unrelated = tmp_path / "unrelated"
     unrelated.mkdir()
     manifest_path = write_manifest(manifest)
@@ -67,6 +74,7 @@ def test_clean_db_refuses_environment_override_delete(monkeypatch, tmp_path: Pat
     manifest.worktree_root.mkdir(parents=True)
     manifest.candidates[0].worktree_path.mkdir(parents=True)
     manifest.candidates[0].result_dir.mkdir(parents=True)
+    _mark_generated_roots(manifest)
     manifest_path = write_manifest(manifest)
     unrelated = tmp_path / "unrelated.sqlite3"
     unrelated.write_text("do not delete", encoding="utf-8")
@@ -85,6 +93,7 @@ def test_clean_db_requires_manifest_recorded_database(tmp_path: Path) -> None:
     manifest.worktree_root.mkdir(parents=True)
     manifest.candidates[0].worktree_path.mkdir(parents=True)
     manifest.candidates[0].result_dir.mkdir(parents=True)
+    _mark_generated_roots(manifest)
     manifest_path = write_manifest(manifest)
 
     with pytest.raises(CleanupSafetyError, match="database path"):
@@ -97,6 +106,7 @@ def test_clean_db_uses_manifest_recorded_default_database(tmp_path: Path) -> Non
     manifest.worktree_root.mkdir(parents=True)
     manifest.candidates[0].worktree_path.mkdir(parents=True)
     manifest.candidates[0].result_dir.mkdir(parents=True)
+    _mark_generated_roots(manifest)
     manifest_path = write_manifest(manifest)
 
     result = clean_resources(manifest_path, dry_run=True, remove_db=True, use_git=False)
@@ -109,6 +119,7 @@ def test_clean_refuses_manifest_outside_output_dir(tmp_path: Path) -> None:
     manifest = _manifest(tmp_path)
     manifest.output_dir.mkdir(parents=True)
     manifest.worktree_root.mkdir(parents=True)
+    _mark_generated_roots(manifest)
     manifest_path = write_manifest(manifest, tmp_path / "manifest.json")
 
     with pytest.raises(CleanupSafetyError, match="output_dir/manifest.json"):
@@ -119,6 +130,7 @@ def test_clean_refuses_candidate_worktree_outside_worktree_root(tmp_path: Path) 
     manifest = _manifest(tmp_path)
     manifest.output_dir.mkdir(parents=True)
     manifest.worktree_root.mkdir(parents=True)
+    _mark_generated_roots(manifest)
     manifest.candidates[0].worktree_path = tmp_path / "outside-worktree"
     manifest_path = write_manifest(manifest)
 
@@ -130,6 +142,7 @@ def test_clean_refuses_candidate_result_dir_outside_output_dir(tmp_path: Path) -
     manifest = _manifest(tmp_path)
     manifest.output_dir.mkdir(parents=True)
     manifest.worktree_root.mkdir(parents=True)
+    _mark_generated_roots(manifest)
     manifest.candidates[0].result_dir = tmp_path / "outside-result"
     manifest_path = write_manifest(manifest)
 
@@ -143,6 +156,7 @@ def test_clean_refuses_symlink_cleanup_target(tmp_path: Path) -> None:
     manifest.worktree_root.mkdir(parents=True)
     outside = tmp_path / "outside"
     outside.mkdir()
+    _mark_generated_roots(manifest)
     manifest.candidates[0].worktree_path.symlink_to(outside, target_is_directory=True)
     manifest_path = write_manifest(manifest)
 
@@ -163,6 +177,7 @@ def test_clean_removes_dirty_git_worktree_without_force(tmp_path: Path) -> None:
     manifest.candidates[0].worktree_path = worktree.path
     worktree.path.joinpath("dirty.txt").write_text("dirty\n", encoding="utf-8")
     manifest.candidates[0].result_dir.mkdir(parents=True)
+    _mark_generated_roots(manifest)
     manifest_path = write_manifest(manifest)
 
     result = clean_resources(manifest_path)
@@ -176,6 +191,7 @@ def test_manifest_loader_discards_legacy_candidate_label(tmp_path: Path) -> None
     manifest = _manifest(tmp_path)
     manifest.output_dir.mkdir(parents=True)
     manifest.worktree_root.mkdir(parents=True)
+    _mark_generated_roots(manifest)
     manifest_path = write_manifest(manifest)
     raw = json.loads(manifest_path.read_text(encoding="utf-8"))
     raw["candidates"][0]["label"] = "legacy candidate label"
@@ -237,6 +253,44 @@ def test_clean_results_refuses_symlink_root_and_parent(tmp_path: Path) -> None:
 
     with pytest.raises(CleanupSafetyError, match="symlink"):
         plan_results_cleanup(parent_link / "results")
+
+
+def test_clean_refuses_generated_root_without_marker(tmp_path: Path) -> None:
+    manifest = _manifest(tmp_path)
+    manifest.output_dir.mkdir(parents=True)
+    manifest.worktree_root.mkdir(parents=True)
+    manifest.candidates[0].worktree_path.mkdir(parents=True)
+    manifest.candidates[0].result_dir.mkdir(parents=True)
+    manifest_path = write_manifest(manifest)
+
+    with pytest.raises(CleanupSafetyError, match="generated root"):
+        clean_resources(manifest_path, dry_run=True, use_git=False)
+
+
+def test_clean_results_refuses_unrelated_files_inside_marked_root(tmp_path: Path) -> None:
+    root = tmp_path / "results"
+    root.mkdir()
+    (root / ".eval-feia-results").write_text("eval-feia results\n", encoding="utf-8")
+    (root / "index.jsonl").write_text("", encoding="utf-8")
+    (root / "unrelated.txt").write_text("do not delete", encoding="utf-8")
+
+    with pytest.raises(CleanupSafetyError, match="unexpected entries"):
+        plan_results_cleanup(root)
+
+
+def test_clean_results_refuses_malformed_owned_entries(tmp_path: Path) -> None:
+    root = tmp_path / "results"
+    root.mkdir()
+    (root / ".eval-feia-results").write_text("eval-feia results\n", encoding="utf-8")
+    (root / "runs").write_text("not a directory", encoding="utf-8")
+
+    with pytest.raises(CleanupSafetyError, match="runs path"):
+        plan_results_cleanup(root)
+
+
+def _mark_generated_roots(manifest: Manifest) -> None:
+    write_generated_marker(manifest.output_dir)
+    write_generated_marker(manifest.worktree_root)
 
 
 def _manifest(tmp_path: Path) -> Manifest:

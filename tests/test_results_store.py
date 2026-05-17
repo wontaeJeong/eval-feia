@@ -108,3 +108,25 @@ def test_result_file_path_rejects_traversal(monkeypatch, tmp_path: Path) -> None
 
     with pytest.raises(ValueError, match="relative path"):
         result_file_path(run_id, "../metadata.json")
+
+
+def test_results_store_refuses_non_empty_unmarked_root(monkeypatch, tmp_path: Path) -> None:
+    root = tmp_path / "shared"
+    root.mkdir()
+    (root / "unrelated.txt").write_text("do not own", encoding="utf-8")
+    monkeypatch.setenv("EVAL_FEIA_RESULTS_DIR", str(root))
+
+    with pytest.raises(ValueError, match="non-empty results root"):
+        start_run_record("20260517-143012-a1b2c3", cwd=tmp_path, branch="HEAD", label=None, command=None)
+
+
+def test_results_store_refuses_unexpected_entries_in_marked_root(monkeypatch, tmp_path: Path) -> None:
+    root = tmp_path / "results"
+    root.mkdir()
+    (root / ".eval-feia-results").write_text("eval-feia results\n", encoding="utf-8")
+    (root / "runs").mkdir()
+    (root / "unrelated.txt").write_text("do not own", encoding="utf-8")
+    monkeypatch.setenv("EVAL_FEIA_RESULTS_DIR", str(root))
+
+    with pytest.raises(ValueError, match="unexpected entries"):
+        start_run_record("20260517-143012-a1b2c3", cwd=tmp_path, branch="HEAD", label=None, command=None)

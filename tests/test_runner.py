@@ -99,6 +99,9 @@ def test_runner_success_collects_children_validation_and_summary(tmp_path: Path)
     assert indexed[0]["branch"] == "HEAD"
     assert indexed[0]["output_dir"] == str(outcome.output_dir)
     assert indexed[0]["summary_path"] == str(outcome.output_dir / "run-summary.json")
+    assert indexed[0]["prompt"] is None
+    metadata = json.loads(indexed[0]["metadata_json"])
+    assert metadata["has_inline_prompt"] is False
     assert any(req.url.path == "/session/ses_1/message" and req.method == "POST" for req in seen)
     assert not any("prompt_async" in req.url.path for req in seen)
     for request in seen:
@@ -209,6 +212,10 @@ def test_runner_uses_inline_prompt(tmp_path: Path) -> None:
 
     assert outcome.passed is True
     assert seen_prompt == "hello inline"
+    indexed = list_runs(default_db_path(config.run.output_root), status="success")
+    assert indexed[0]["prompt"] is None
+    metadata = json.loads(indexed[0]["metadata_json"])
+    assert metadata["has_inline_prompt"] is True
 
 
 def test_runner_timeout_aborts_and_collects_partial_artifacts(tmp_path: Path) -> None:
