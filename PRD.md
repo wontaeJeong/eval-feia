@@ -126,13 +126,13 @@ A run is acceptable when all of the following are true:
 - SQLite run metadata is recorded when the index can be opened; index failures are surfaced as warnings during `run` and exit code `6` during indexed `list`.
 - `list` / `ls` works for saved run artifacts and SQLite filters.
 - `results` inspection works without contacting opencode.
-- `clean` only removes paths listed in the manifest unless `--results` is explicitly used for the stored results root or `--db` is explicitly used for the manifest-recorded default SQLite DB.
+- `clean` only removes paths listed in the manifest after generated-root marker validation unless `--results` is explicitly used for the stored results root or `--db` is explicitly used for the manifest-recorded default SQLite DB.
 
 ## Success metrics
 
 - Reproducible generated artifact directories.
 - Durable local stored result history.
 - Queryable local run metadata index.
-- No accidental deletion outside `.eval-feia`, recorded git worktrees, validated stored result roots, or manifest-recorded default DB files.
+- No accidental deletion outside marker-validated `.eval-feia` generated roots, recorded git worktrees, validated stored result roots, or manifest-recorded default DB files.
 - No hidden dependency on subprocess attach semantics.
 - Clear failure messages for server unavailability, wrong directory context, REST error, permission wait, timeout, validation failure, and storage inspection failure.

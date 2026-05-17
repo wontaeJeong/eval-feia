@@ -178,7 +178,7 @@ Candidate failure classes:
 
 The tool must be conservative with destructive actions:
 
-- never delete a generated worktree or run artifact path not listed in the manifest
+- never delete a generated worktree or run artifact path not listed in the manifest, and never delete generated roots without eval-feia marker validation
 - never delete stored result history unless `clean --results` is explicitly used and the target is a validated eval-feia results root
 - never delete the SQLite metadata index unless `clean --db` is explicitly used and the manifest records the default DB path
 - never delete the repository root
