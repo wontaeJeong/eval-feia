@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from typing import Any
-
 from rich.console import Console
 
 from .manifest import Manifest, write_json
 from .plain_table import print_plain_table
+from .records import CandidateResult, JsonObject, RunSummary
 
 
 def parse_numstat(numstat: str) -> dict[str, int]:
@@ -26,13 +25,13 @@ def parse_numstat(numstat: str) -> dict[str, int]:
 
 def write_run_summary(
     manifest: Manifest,
-    candidate_results: list[dict[str, Any]],
+    candidate_results: list[CandidateResult],
     *,
-    health: dict[str, Any] | None = None,
-) -> dict[str, Any]:
+    health: JsonObject | None = None,
+) -> RunSummary:
     output_dir = manifest.output_dir
     passed = all(result.get("status") == "passed" for result in candidate_results)
-    summary = {
+    summary: RunSummary = {
         "run_id": manifest.run_id,
         "label": manifest.label,
         "server": manifest.server.model_dump(mode="json"),
@@ -48,7 +47,7 @@ def write_run_summary(
     return summary
 
 
-def render_markdown_summary(summary: dict[str, Any]) -> str:
+def render_markdown_summary(summary: RunSummary) -> str:
     lines = [
         f"# eval-feia Run {summary['run_id']}",
         "",
@@ -90,7 +89,7 @@ def render_markdown_summary(summary: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def print_summary(console: Console, summary: dict[str, Any]) -> None:
+def print_summary(console: Console, summary: RunSummary) -> None:
     console.print("eval-feia run summary", markup=False)
     rows = []
     for candidate in summary["candidates"]:

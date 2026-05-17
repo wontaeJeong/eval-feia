@@ -8,7 +8,7 @@ from typing import Annotated, Any
 import typer
 from rich.console import Console
 
-from .clean import clean_resources, clean_results
+from .clean import CleanupResult, clean_resources, clean_results
 from .config import EvalConfig, build_config
 from .errors import CleanupSafetyError, ConfigError, EvalFeiaError, GitError, HealthError
 from .listing import list_saved_runs, print_saved_runs, saved_runs_json
@@ -22,7 +22,7 @@ from .results_store import (
     run_directory,
     start_run_record,
 )
-from .runner import generate_run_id, run_evaluation
+from .runner import RunOutcome, generate_run_id, run_evaluation
 from .storage import (
     DB_ENV_VAR,
     VALID_STATUSES,
@@ -319,7 +319,7 @@ app.command("list-run-artifacts")(_list_runs_command)
 def _finish_completed_cli_run(
     run_id: str,
     run_console: Console,
-    outcome: Any,
+    outcome: RunOutcome,
     *,
     exit_code: int,
 ) -> None:
@@ -365,7 +365,7 @@ def _finish_failed_cli_run(
     )
 
 
-def _outcome_output_text(outcome: Any) -> str:
+def _outcome_output_text(outcome: RunOutcome) -> str:
     output_dir = getattr(outcome, "output_dir", None)
     summary = getattr(outcome, "summary", None)
     if not isinstance(output_dir, Path) or not isinstance(summary, dict):
@@ -403,7 +403,7 @@ def _outcome_output_text(outcome: Any) -> str:
     return render_markdown_summary(summary)
 
 
-def _outcome_summary_text(outcome: Any, fallback: str) -> str:
+def _outcome_summary_text(outcome: RunOutcome, fallback: str) -> str:
     output_dir = getattr(outcome, "output_dir", None)
     summary = getattr(outcome, "summary", None)
     if isinstance(output_dir, Path):
@@ -566,7 +566,7 @@ def clean_stored_results(
     _print_cleanup_result(cleanup_result, dry_run=dry_run)
 
 
-def _print_cleanup_result(cleanup_result: Any, *, dry_run: bool) -> None:
+def _print_cleanup_result(cleanup_result: CleanupResult, *, dry_run: bool) -> None:
     for action in cleanup_result.actions:
         prefix = "would remove" if dry_run else "removed"
         console.print(f"{prefix} {action.kind}: {action.path}", soft_wrap=True)
