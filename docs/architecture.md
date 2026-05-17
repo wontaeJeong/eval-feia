@@ -67,6 +67,14 @@ Runs configured validation commands inside each worktree.
 
 Writes machine-readable result files and human-readable markdown summaries. Prints final console output.
 
+### Stored results store
+
+Writes durable run metadata, output, summary, and log files under `EVAL_FEIA_RESULTS_DIR` or `$HOME/.eval-feia/results`. Powers the read-only `results` command group.
+
+### SQLite metadata index
+
+Indexes run metadata and lifecycle events in `eval-feia.sqlite3` for filtered `list` / `ls` queries. Large logs and collected opencode payloads stay in files.
+
 ### Cleaner
 
 Removes manifest-recorded worktrees and result directories. Does not touch opencode server processes.
@@ -172,6 +180,7 @@ The tool must be conservative with destructive actions:
 
 - never delete a generated worktree or run artifact path not listed in the manifest
 - never delete stored result history unless `clean --results` is explicitly used and the target is a validated eval-feia results root
+- never delete the SQLite metadata index unless `clean --db` is explicitly used and the manifest records the default DB path
 - never delete the repository root
 - never delete outside the configured workspace/output root unless the manifest explicitly says it is a generated git worktree
 - never kill `opencode serve`

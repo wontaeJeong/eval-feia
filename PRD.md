@@ -14,10 +14,13 @@ Build a local CLI tool that:
 2. Runs the same evaluation prompt against each worktree through an existing `opencode serve` HTTP endpoint.
 3. Ensures each opencode request is scoped to the correct worktree directory.
 4. Collects messages, session metadata, child sessions, todo state, diffs, file status, validation logs, and final assistant output.
-5. Writes a structured run directory.
-6. Prints a final result summary automatically at the end of `run`.
-7. Lists saved run results through a read-only `list` / `ls` command.
-8. Cleans generated worktrees and result files only through a manifest-based `clean` command.
+5. Writes structured run artifacts under the configured output root.
+6. Writes durable stored result history under `EVAL_FEIA_RESULTS_DIR` or `$HOME/.eval-feia/results`.
+7. Indexes run metadata in a local SQLite database for filtered listing.
+8. Prints a final result summary automatically at the end of `run`.
+9. Lists saved run results through a read-only `list` / `ls` command.
+10. Inspects durable stored results through a read-only `results` command group.
+11. Cleans generated worktrees and result files only through manifest-based `clean`; stored results and the default SQLite DB require explicit flags.
 
 ## Non-goals
 
@@ -48,8 +51,9 @@ eval-feia run --prompt-file prompt.md --repo . --branch HEAD --attempts 1
 
 4. `eval-feia` prints:
 
+- stored result output directory
 - opencode server health/version
-- run ID, run label when provided, repository path, base ref/SHA, output directory, and worktree root
+- run ID, run label when provided, repository path, base ref/SHA, generated artifact output directory, and worktree root
 - progress lines for the major run phases
 - effective worktree paths
 - per-worktree session IDs
@@ -62,30 +66,44 @@ eval-feia run --prompt-file prompt.md --repo . --branch HEAD --attempts 1
 eval-feia list
 eval-feia ls --limit 5
 eval-feia list --output-dir ./custom-runs
+EVAL_FEIA_DB_PATH=/tmp/eval-feia.sqlite3 eval-feia list --json
+eval-feia ls --status success --branch HEAD
 ```
 
-6. User optionally removes generated resources:
+6. User can inspect durable stored results:
+
+```bash
+eval-feia results list
+eval-feia results show <run-id>
+eval-feia results path <run-id>
+eval-feia results cat <run-id> output.txt
+```
+
+7. User optionally removes generated resources:
 
 ```bash
 eval-feia clean .eval-feia/runs/<run-id>/manifest.json
+eval-feia clean .eval-feia/runs/<run-id>/manifest.json --db
+eval-feia clean --results
 ```
 
 ## MVP command surface
 
 ### `run`
 
-`run` performs preflight, worktree creation, REST execution, collection, local validation, and final summary output.
+`run` performs preflight, worktree creation, REST execution, collection, local validation, final summary output, stored result persistence, and SQLite metadata indexing.
 
 ### `list` / `ls`
 
-`list` prints saved run results from the run output root, including custom roots passed with `--output-dir`. `ls` is an alias for the same handler. The command is read-only and tolerates missing or partial metadata.
+`list` prints saved run results from the run output root by default, including custom roots passed with `--output-dir`. `ls` is an alias for the same handler. The command is read-only and tolerates missing or partial metadata.
+
+When `EVAL_FEIA_DB_PATH` is set or `--status`, `--branch`, or `--label` is provided, `list` / `ls` reads the local SQLite metadata index instead and can backfill it from existing file outputs.
 
 ### `clean`
 
 `clean` removes generated worktrees and result artifacts recorded in a manifest. It never kills `opencode serve`; outside manifest mode, it may remove stored result history only through the explicit `clean --results` path after validating the eval-feia results root.
 
-Stored result history is separate from manifest cleanup. It is removed only by the explicit
-`clean --results` option after validating the eval-feia results root.
+`clean --db` deletes only the manifest-recorded default SQLite database under the generated output root. Custom `EVAL_FEIA_DB_PATH` databases are never deleted automatically.
 
 ### `results`
 
@@ -102,12 +120,19 @@ A run is acceptable when all of the following are true:
 - The prompt is sent through REST, not through `opencode run --attach`.
 - The tool waits until each execution is complete or times out.
 - The tool collects messages, session info, children, todo state, diff, file status, and local git diff.
-- The console output includes the result directory before execution and a final plain summary table after execution.
-- `clean` only removes paths listed in the manifest unless `--results` is explicitly used for the stored results root.
+- The console output includes the stored result directory before execution and a final plain summary table after execution.
+- Generated artifacts are written under the configured output root.
+- Durable stored results are written under the configured results root.
+- SQLite run metadata is recorded when the index can be opened; index failures are surfaced as warnings during `run` and exit code `6` during indexed `list`.
+- `list` / `ls` works for saved run artifacts and SQLite filters.
+- `results` inspection works without contacting opencode.
+- `clean` only removes paths listed in the manifest unless `--results` is explicitly used for the stored results root or `--db` is explicitly used for the manifest-recorded default SQLite DB.
 
 ## Success metrics
 
-- Reproducible result directories.
-- No accidental deletion outside `.eval-feia` and recorded git worktrees.
+- Reproducible generated artifact directories.
+- Durable local stored result history.
+- Queryable local run metadata index.
+- No accidental deletion outside `.eval-feia`, recorded git worktrees, validated stored result roots, or manifest-recorded default DB files.
 - No hidden dependency on subprocess attach semantics.
-- Clear failure messages for server unavailability, wrong directory context, REST error, permission wait, timeout, and validation failure.
+- Clear failure messages for server unavailability, wrong directory context, REST error, permission wait, timeout, validation failure, and storage inspection failure.

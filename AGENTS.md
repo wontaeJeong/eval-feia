@@ -15,7 +15,7 @@ The MVP is REST-only. Do not implement execution by shelling out to `opencode ru
 5. For GET/HEAD requests, prefer a `directory` query parameter with the directory URL-encoded exactly once.
 6. Use absolute paths for worktree directories.
 7. Validate returned session directory/path information when available.
-8. Use manifest-based cleanup for generated worktrees/run artifacts; stored result history cleanup must require an explicit `clean --results` action and a validated eval-feia results root.
+8. Use manifest-based cleanup for generated worktrees/run artifacts; stored result history cleanup must require an explicit `clean --results` action and a validated eval-feia results root; SQLite DB deletion must require explicit `clean --db` and a manifest-recorded default DB path.
 9. `run` must perform collection and final summary automatically.
 10. Keep the CLI surface minimal: `run`, read-only `list` / `ls`, `clean`, and read-only `results` inspection for MVP.
 
@@ -57,7 +57,10 @@ eval-feia/
     listing.py
     collector.py
     summary.py
+    results_store.py
+    storage.py
     clean.py
+    plain_table.py
     errors.py
   tests/
     test_opencode_client.py
@@ -74,7 +77,7 @@ eval-feia/
 - Use typed dataclasses or pydantic models for config, manifest, and run result records.
 - Never log secrets, Authorization headers, provider API keys, or full auth config.
 - Include run IDs and candidate IDs in logs.
-- Generated worktree/run artifact deletion must go through manifest validation; stored result history deletion must require explicit `clean --results` and a validated eval-feia results root.
+- Generated worktree/run artifact deletion must go through manifest validation; stored result history deletion must require explicit `clean --results` and a validated eval-feia results root; SQLite DB deletion must require explicit `clean --db` and a manifest-recorded default DB path.
 
 ## Git history
 
@@ -126,6 +129,8 @@ Tests must cover:
 - Manifest creation and cleanup safety.
 - Final summary generation.
 - Saved run listing and `ls` alias behavior.
+- Stored results inspection behavior.
+- SQLite metadata indexing, filtering, and cleanup safety.
 
 ## Do not implement
 

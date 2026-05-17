@@ -35,3 +35,9 @@ Rationale: worktree cleanup is destructive. Manifest-based cleanup prevents acci
 Decision: Every worktree-specific request carries a directory context.
 
 Rationale: the server process cwd is not sufficient when one server handles multiple worktrees. The effective working directory must be request-specific.
+
+## ADR-007: SQLite is a metadata index, not the artifact store
+
+Decision: generated artifacts and durable stored-result files remain authoritative, while SQLite indexes run metadata and lifecycle events for filtered `list` / `ls` queries.
+
+Rationale: large logs and opencode payloads are better kept as files. SQLite improves local querying without making cleanup depend on opaque database state.
