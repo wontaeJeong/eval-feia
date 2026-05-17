@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from rich.console import Console
 
 
 def print_plain_table(
     console: Console,
     headers: tuple[str, ...],
-    rows: list[tuple[str, ...]],
+    rows: Sequence[tuple[str, ...]],
 ) -> None:
     widths = [len(header) for header in headers[:-1]]
     for row in rows:

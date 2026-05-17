@@ -16,6 +16,7 @@ def test_run_help_lists_command_option() -> None:
     assert "arguments" in result.output
     assert "--branch" in result.output
     assert "--attempts" in result.output
+    assert "EVAL_FEIA_DB_PATH" in result.output
     assert "--config" not in result.output
     assert "--base-ref" not in result.output
     assert "--worktrees" not in result.output
@@ -85,4 +86,16 @@ def test_clean_manifest_is_positional_argument() -> None:
 
     assert result.exit_code == 0
     assert "MANIFEST" in result.output
+    assert "--db" in result.output
     assert "--manifest" not in result.output
+
+
+def test_list_help_includes_filters_and_json() -> None:
+    result = CliRunner().invoke(app, ["list", "--help"], color=False)
+
+    assert result.exit_code == 0
+    assert "--limit" in result.output
+    assert "--status" in result.output
+    assert "--branch" in result.output
+    assert "--label" in result.output
+    assert "--json" in result.output
