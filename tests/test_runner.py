@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import io
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -12,7 +13,7 @@ from rich.console import Console
 
 from eval_feia.config import EvalConfig
 from eval_feia.opencode_client import DIRECTORY_HEADER, OpencodeClient
-from eval_feia.runner import _health_with_retry, run_evaluation
+from eval_feia.runner import _health_with_retry, generate_run_id, run_evaluation
 
 
 def test_runner_success_collects_children_validation_and_summary(tmp_path: Path) -> None:
@@ -477,6 +478,10 @@ def test_health_retry_uses_dedicated_timeout() -> None:
 
     assert health["version"] == "fake"
     assert client.timeouts == [1.25, 1.25]
+
+
+def test_generate_run_id_is_readable_and_low_collision_shape() -> None:
+    assert re.fullmatch(r"\d{8}-\d{6}-[0-9a-f]{6}", generate_run_id())
 
 
 def _config(
