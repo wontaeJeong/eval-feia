@@ -79,11 +79,7 @@ def utc_now_iso() -> str:
 
 def write_manifest(manifest: Manifest, path: Path | None = None) -> Path:
     manifest_path = path or manifest.output_dir / "manifest.json"
-    manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    manifest_path.write_text(
-        _json_dumps(manifest.model_dump(mode="json", exclude_none=True)),
-        encoding="utf-8",
-    )
+    _write_text_atomic(manifest_path, _json_dumps(manifest.model_dump(mode="json", exclude_none=True)))
     return manifest_path
 
 
@@ -94,8 +90,18 @@ def load_manifest(path: Path) -> Manifest:
 
 
 def write_json(path: Path, value: Any) -> None:
+    _write_text_atomic(path, _json_dumps(_jsonable(value)))
+
+
+def _write_text_atomic(path: Path, value: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(_json_dumps(_jsonable(value)), encoding="utf-8")
+    tmp = path.with_name(f".{path.name}.tmp")
+    try:
+        tmp.write_text(value, encoding="utf-8")
+        tmp.replace(path)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def _json_dumps(value: Any) -> str:
