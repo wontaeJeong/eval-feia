@@ -2,7 +2,7 @@
 
 ## Stored result metadata
 
-Each CLI `run` writes a durable record under `$HOME/.eval-feia/results` or
+Each CLI `run-eval` writes a durable record under `$HOME/.eval-feia/results` or
 `EVAL_FEIA_RESULTS_DIR`:
 
 ```text
@@ -179,9 +179,9 @@ Generated artifact files and durable stored-result files remain authoritative. T
 `<output-root>/eval-feia.sqlite3` by default, or at `EVAL_FEIA_DB_PATH` when that
 environment variable is set.
 
-Default DB paths are recorded in new run manifests so `clean --db` can delete them through
+Default DB paths are recorded in new run manifests so `clean-run-artifacts --delete-index` can delete them through
 the same manifest validation flow. Custom `EVAL_FEIA_DB_PATH` databases are not deleted by
-`clean --db`; remove them manually when needed.
+`clean-run-artifacts --delete-index`; remove them manually when needed.
 
 Schema versioning uses `PRAGMA user_version`. Version 1 contains:
 

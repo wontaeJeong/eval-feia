@@ -13,7 +13,7 @@
 GET /global/health
 ```
 
-`run` first creates a durable stored result directory, starts a stored result record, and prints it:
+`run-eval` first creates a durable stored result directory, starts a stored result record, and prints it:
 
 ```text
 Run ID: <run-id>
@@ -55,7 +55,7 @@ Print created worktrees as a compact CLI table:
 1  /abs/path/.eval-feia/worktrees/<run-id>/command-body-test
 ```
 
-Record each worktree and its actual branch name in `manifest.json` as soon as it is created. Generated artifact and worktree roots include eval-feia marker files that `clean` validates before deleting root directories. When the SQLite DB path is the default database under the generated artifact root, record that DB path in the manifest for `clean --db`.
+Record each worktree and its actual branch name in `manifest.json` as soon as it is created. Generated artifact and worktree roots include eval-feia marker files that `clean-run-artifacts` validates before deleting root directories. When the SQLite DB path is the default database under the generated artifact root, record that DB path in the manifest for `clean-run-artifacts --delete-index`.
 
 ## Candidate execution
 
@@ -140,12 +140,12 @@ MVP does not need to drive child sessions directly. It only needs to detect and 
 
 ## Final summary
 
-At the end of `run`, print the result table, write generated summary files, update the SQLite index, and complete the durable stored result record. Do not repeat the
+At the end of `run-eval`, print the result table, write generated summary files, update the SQLite index, and complete the durable stored result record. Do not repeat the
 run metadata already printed before candidate execution.
 
 ```text
 progress: writing final summary
-eval-feia results
+eval-feia run summary
 CANDIDATE  BRANCH             STATUS  VALIDATION  FILES  ADDITIONS  DELETIONS  SESSION  WORKTREE
 cand-001   eval/<run-id>/foo  passed  passed      5      120        13         ses_...  /abs/...
 cand-002   eval/<run-id>/bar  failed  failed      2      44         7          ses_...  /abs/...
