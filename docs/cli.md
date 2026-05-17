@@ -24,6 +24,16 @@ eval-feia run "..." --label "foo test"
 
 Provide only one prompt source: the positional prompt argument or `--prompt-file`.
 
+At startup `run` prints the stored result location:
+
+```text
+Run ID: 20260517-143012-a1b2c3
+Output directory: /home/user/.eval-feia/results/runs/20260517-143012-a1b2c3
+```
+
+Stored results default to `$HOME/.eval-feia/results`. Set `EVAL_FEIA_RESULTS_DIR` to override
+that root.
+
 `--command <name>` runs an opencode slash command. The prompt file content is sent to opencode as the command `arguments`. A leading slash is accepted in CLI input, so `--command /bash` sends `"bash"` in the HTTP request body.
 
 ### Required inputs
@@ -54,6 +64,8 @@ The command prints:
 
 The command writes:
 
+- stored result metadata, output, summary, and logs under `$HOME/.eval-feia/results/runs/<run-id>`
+- append-only `$HOME/.eval-feia/results/index.jsonl`
 - manifest
 - per-candidate session metadata
 - messages
@@ -132,6 +144,7 @@ Removes generated resources from a previous run.
 
 ```bash
 eval-feia clean .eval-feia/runs/<run-id>/manifest.json
+eval-feia clean --results
 ```
 
 ### Behavior
@@ -141,15 +154,33 @@ eval-feia clean .eval-feia/runs/<run-id>/manifest.json
 - Removes generated git worktrees using `git worktree remove` when possible.
 - Removes candidate result directories if configured.
 - Does not stop opencode server.
-- Does not remove files outside manifest.
+- In manifest-cleanup mode, does not remove files outside manifest-recorded generated resources.
+- Does not remove stored results unless `--results` is provided and the results root validates as eval-feia-owned.
 
 ### Flags
 
 ```text
-MANIFEST             Required. Manifest file to clean.
+MANIFEST             Required unless --results is used by itself. Manifest file to clean.
 --dry-run            Print planned deletions without deleting.
 --force              Continue after non-critical cleanup errors.
+--results            Remove the stored results root after printing the target path.
 ```
+
+## Command Group: `eval-feia results`
+
+Inspect locally stored run results without contacting opencode.
+
+```bash
+eval-feia results list
+eval-feia results show <run-id>
+eval-feia results path <run-id>
+eval-feia results cat <run-id> [file]
+```
+
+- `results list` prints `run_id`, `created_at`, `status`, `branch`, `label`, `cwd`, and `output_dir` newest first. If `index.jsonl` is missing or damaged, it scans `runs/*/metadata.json`.
+- `results show <run-id>` prints metadata plus `summary.txt`, falling back to the start of `output.txt`.
+- `results path <run-id>` prints only the absolute stored run directory for scripts.
+- `results cat <run-id> [file]` prints a file inside the run directory; the default is `output.txt`. Absolute paths and `..` traversal are rejected.
 
 ## Removed or deferred commands
 
