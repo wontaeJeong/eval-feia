@@ -39,7 +39,7 @@ The log files are local debugging artifacts and may contain command output or er
 
 ## Manifest
 
-`manifest.json` is the authoritative cleanup and provenance record.
+`manifest.json` is the authoritative cleanup and provenance record. Generated output and worktree roots also carry eval-feia marker files that cleanup validates before deleting root directories.
 
 ```json
 {

@@ -31,7 +31,7 @@ Verify:
 
 - manifest is written after worktree creation
 - clean refuses unsafe paths
-- clean removes only manifest paths
+- clean removes only manifest paths after generated-root marker validation
 - dry-run does not delete
 
 ### Run labels and branch names
@@ -57,7 +57,7 @@ Verify:
 - SQLite schema version 1 creates `runs` and `run_events`
 - SQLite list filters support status, branch, and label
 - saved artifact listing backfills an empty SQLite index idempotently
-- `clean` marks deleted generated outputs as missing in SQLite metadata
+- `clean` requires generated-root markers and marks deleted generated outputs as missing in SQLite metadata
 - `clean --db` deletes only the manifest-recorded default DB and rejects custom `EVAL_FEIA_DB_PATH`
 
 ### Runner behavior

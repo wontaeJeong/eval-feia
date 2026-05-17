@@ -55,7 +55,7 @@ Print created worktrees as a compact CLI table:
 1  /abs/path/.eval-feia/worktrees/<run-id>/command-body-test
 ```
 
-Record each worktree and its actual branch name in `manifest.json` as soon as it is created. When the SQLite DB path is the default database under the generated artifact root, record that DB path in the manifest for `clean --db`.
+Record each worktree and its actual branch name in `manifest.json` as soon as it is created. Generated artifact and worktree roots include eval-feia marker files that `clean` validates before deleting root directories. When the SQLite DB path is the default database under the generated artifact root, record that DB path in the manifest for `clean --db`.
 
 ## Candidate execution
 
