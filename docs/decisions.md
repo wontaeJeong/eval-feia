@@ -22,7 +22,7 @@ Rationale: the synchronous endpoint sends a message and waits for a response. As
 
 Decision: MVP exposes `run`, read-only `list` / `ls`, `clean`, and read-only `results` inspection commands.
 
-Rationale: `run` already includes execution, collection, and summary. `list` / `ls` discover saved run artifacts so users can inspect past generated outputs and choose a manifest for `clean`; `results` reads the durable local file-backed history without contacting opencode.
+Rationale: `run` already includes execution, collection, and summary. `list` / `ls` discover saved run artifacts and query the local SQLite metadata index; `results` reads durable local file-backed history without contacting opencode.
 
 ## ADR-005: Manifest-based cleanup
 
