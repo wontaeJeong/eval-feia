@@ -130,3 +130,27 @@ def test_results_store_refuses_unexpected_entries_in_marked_root(monkeypatch, tm
 
     with pytest.raises(ValueError, match="unexpected entries"):
         start_run_record("20260517-143012-a1b2c3", cwd=tmp_path, branch="HEAD", label=None, command=None)
+
+
+def test_results_store_refuses_symlink_marker(monkeypatch, tmp_path: Path) -> None:
+    root = tmp_path / "results"
+    root.mkdir()
+    marker_target = tmp_path / "marker-target"
+    marker_target.write_text("eval-feia results\n", encoding="utf-8")
+    (root / ".eval-feia-results").symlink_to(marker_target)
+    monkeypatch.setenv("EVAL_FEIA_RESULTS_DIR", str(root))
+
+    with pytest.raises(ValueError, match="marker is invalid"):
+        start_run_record("20260517-143012-a1b2c3", cwd=tmp_path, branch="HEAD", label=None, command=None)
+
+
+def test_results_store_refuses_symlink_run_directory(monkeypatch, tmp_path: Path) -> None:
+    root = tmp_path / "results"
+    root.mkdir()
+    (root / ".eval-feia-results").write_text("eval-feia results\n", encoding="utf-8")
+    (root / "runs").mkdir()
+    (root / "runs" / "20260517-143012-a1b2c3").symlink_to(tmp_path)
+    monkeypatch.setenv("EVAL_FEIA_RESULTS_DIR", str(root))
+
+    with pytest.raises(ValueError, match="stored run directory is a symlink"):
+        start_run_record("20260517-143012-a1b2c3", cwd=tmp_path, branch="HEAD", label=None, command=None)

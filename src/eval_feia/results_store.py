@@ -28,7 +28,17 @@ def resolve_results_root(root: Path | None = None) -> Path:
 
 def run_directory(run_id: str, root: Path | None = None) -> Path:
     _validate_run_id(run_id)
-    return (resolve_results_root(root) / "runs" / run_id).resolve(strict=False)
+    root_path = resolve_results_root(root)
+    runs_root = root_path / "runs"
+    run_path = runs_root / run_id
+    if runs_root.is_symlink():
+        raise ValueError(f"results runs path is not a directory: {runs_root}")
+    if run_path.is_symlink():
+        raise ValueError(f"stored run directory is a symlink: {run_path}")
+    resolved = run_path.resolve(strict=False)
+    if not _is_relative_to(resolved, root_path):
+        raise ValueError("stored run directory must stay inside the results root")
+    return resolved
 
 
 def start_run_record(
@@ -199,7 +209,7 @@ def _validate_results_root_for_write(root: Path) -> None:
         if entries:
             raise ValueError(f"refusing to initialize non-empty results root: {root}")
         return
-    if not marker.is_file() or marker.read_text(encoding="utf-8") != RESULTS_MARKER_TEXT:
+    if marker.is_symlink() or not marker.is_file() or marker.read_text(encoding="utf-8") != RESULTS_MARKER_TEXT:
         raise ValueError(f"results root marker is invalid: {marker}")
     unexpected = sorted(path.name for path in entries if path.name not in RESULTS_OWNED_ENTRIES)
     if unexpected:
