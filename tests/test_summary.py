@@ -33,7 +33,7 @@ def test_print_summary_renders_candidate_values_as_plain_text() -> None:
     print_summary(console, summary)
 
     text = output.getvalue()
-    assert "eval-feia results" in text
+    assert "eval-feia run summary" in text
     assert "CANDIDATE  BRANCH" in text
     assert "eval/run-1/[blue]branch[/blue]" in text
     assert "/tmp/[green]worktree[/green]" in text

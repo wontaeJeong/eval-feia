@@ -170,7 +170,7 @@ def test_cli_list_json_outputs_valid_json(monkeypatch, tmp_path: Path) -> None:
         output_dir=tmp_path / "runs" / "json-run",
     )
 
-    result = CliRunner().invoke(app, ["list", "--json"], color=False)
+    result = CliRunner().invoke(app, ["list-run-artifacts", "--json"], color=False)
 
     assert result.exit_code == 0
     rows = json.loads(result.output)

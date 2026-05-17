@@ -91,7 +91,7 @@ def render_markdown_summary(summary: dict[str, Any]) -> str:
 
 
 def print_summary(console: Console, summary: dict[str, Any]) -> None:
-    console.print("eval-feia results", markup=False)
+    console.print("eval-feia run summary", markup=False)
     rows = []
     for candidate in summary["candidates"]:
         stats = candidate.get("summary", {})

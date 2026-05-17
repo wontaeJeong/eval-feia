@@ -73,7 +73,7 @@ def clean_resources(
         safe_db_path = db_path_for_output_root(manifest.output_dir.parent)
         if db_path != safe_db_path:
             raise CleanupSafetyError(
-                f"refusing to delete {DB_ENV_VAR} override from clean --db; "
+                f"refusing to delete {DB_ENV_VAR} override from clean-run-artifacts --delete-index; "
                 f"delete it manually if intended: {db_path}"
             )
         if manifest.db_path is None:

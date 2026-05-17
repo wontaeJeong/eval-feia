@@ -36,13 +36,11 @@ from .summary import render_markdown_summary
 
 
 app = typer.Typer(add_completion=False, help="REST-only opencode worktree evaluator.")
-results_app = typer.Typer(add_completion=False, help="Inspect stored eval-feia results.")
-app.add_typer(results_app, name="results")
 console = Console()
 
 
-@app.command()
-def run(
+@app.command("run-eval")
+def run_eval(
     prompt: Annotated[
         str | None,
         typer.Argument(
@@ -205,21 +203,21 @@ def _validate_prompt_sources(prompt: str | None, prompt_file: Path | None) -> No
 def _list_runs_command(
     limit: Annotated[
         int | None,
-        typer.Option("--limit", help="Show only the most recent N saved runs."),
+        typer.Option("--limit", help="Show only the most recent N generated run artifacts."),
     ] = None,
     output_dir: Annotated[
         Path | None,
-        typer.Option("--output-dir", help="Run output root to inspect."),
+        typer.Option("--output-dir", help="Generated run artifact root to inspect."),
     ] = None,
     status: Annotated[str | None, typer.Option("--status", help="Filter by indexed run status.")] = None,
     branch: Annotated[str | None, typer.Option("--branch", help="Filter by indexed branch/base ref.")] = None,
     label: Annotated[str | None, typer.Option("--label", help="Filter by indexed run label.")] = None,
     json_output: Annotated[
         bool,
-        typer.Option("--json", help="Print saved runs as a JSON array."),
+        typer.Option("--json", help="Print generated run artifacts as a JSON array."),
     ] = False,
 ) -> None:
-    """List saved run results."""
+    """List generated run artifacts."""
     if limit is not None and limit < 1:
         console.print("--limit must be greater than zero", style="red")
         raise typer.Exit(2)
@@ -315,8 +313,7 @@ def _format_duration(value: object) -> str:
     return f"{duration_ms / 1000:.1f}s"
 
 
-app.command("list")(_list_runs_command)
-app.command("ls")(_list_runs_command)
+app.command("list-run-artifacts")(_list_runs_command)
 
 
 def _finish_completed_cli_run(
@@ -426,8 +423,8 @@ def _copy_text_artifacts(run_id: str, artifacts_dir: Path) -> None:
             (stored_dir / name).write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
 
 
-@results_app.command("list")
-def list_results() -> None:
+@app.command("list-stored-results")
+def list_stored_results() -> None:
     """List stored run results, newest first."""
     rows = [
         (
@@ -448,8 +445,8 @@ def list_results() -> None:
     )
 
 
-@results_app.command("show")
-def show_result(run_id: Annotated[str, typer.Argument(help="Run ID to show.")]) -> None:
+@app.command("show-stored-result")
+def show_stored_result(run_id: Annotated[str, typer.Argument(help="Run ID to show.")]) -> None:
     """Show metadata and a short summary for one stored run."""
     try:
         metadata = load_metadata(run_id)
@@ -474,8 +471,8 @@ def show_result(run_id: Annotated[str, typer.Argument(help="Run ID to show.")]) 
     console.print(summary, markup=False)
 
 
-@results_app.command("path")
-def result_path(run_id: Annotated[str, typer.Argument(help="Run ID to locate.")]) -> None:
+@app.command("print-stored-result-path")
+def print_stored_result_path(run_id: Annotated[str, typer.Argument(help="Run ID to locate.")]) -> None:
     """Print only the stored run output directory."""
     try:
         metadata = load_metadata(run_id)
@@ -488,8 +485,8 @@ def result_path(run_id: Annotated[str, typer.Argument(help="Run ID to locate.")]
     )
 
 
-@results_app.command("cat")
-def cat_result(
+@app.command("print-stored-result-file")
+def print_stored_result_file(
     run_id: Annotated[str, typer.Argument(help="Run ID to read from.")],
     file: Annotated[
         str | None,
@@ -520,54 +517,63 @@ def _raise_results_error(exc: Exception) -> None:
     raise typer.Exit(1) from exc
 
 
-@app.command()
-def clean(
+@app.command("clean-run-artifacts")
+def clean_run_artifacts(
     manifest: Annotated[
-        Path | None,
-        typer.Argument(help="Manifest file to clean.", metavar="MANIFEST"),
-    ] = None,
+        Path,
+        typer.Argument(help="Manifest file for generated run artifacts.", metavar="MANIFEST"),
+    ],
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Print planned deletions only.")] = False,
     force: Annotated[bool, typer.Option("--force", help="Continue after non-critical errors.")] = False,
-    results: Annotated[
-        bool,
-        typer.Option("--results", help="Also remove stored results under the configured results root."),
-    ] = False,
-    db: Annotated[
+    delete_index: Annotated[
         bool,
         typer.Option(
-            "--db",
-            help=f"Also delete the SQLite metadata index database ({DB_ENV_VAR} overrides path).",
+            "--delete-index",
+            help="Also delete the manifest-recorded default SQLite metadata index database.",
         ),
     ] = False,
 ) -> None:
-    """Remove only manifest-recorded worktrees and run artifacts."""
-    if manifest is None and not results:
-        console.print("cleanup failed: MANIFEST is required unless --results is set", style="red")
-        raise typer.Exit(2)
-
-    cleanup_results = []
+    """Remove manifest-recorded generated worktrees and run artifacts."""
     try:
-        if manifest is not None:
-            cleanup_results.append(clean_resources(manifest, dry_run=dry_run, force=force, remove_db=db))
-        if results:
-            cleanup_results.append(clean_results(dry_run=dry_run))
+        cleanup_result = clean_resources(
+            manifest,
+            dry_run=dry_run,
+            force=force,
+            remove_db=delete_index,
+        )
     except CleanupSafetyError as exc:
         console.print(f"cleanup safety check failed: {exc}", style="red")
         raise typer.Exit(5) from exc
     except Exception as exc:
         console.print(f"cleanup failed: {exc}", style="red")
         raise typer.Exit(5) from exc
+    _print_cleanup_result(cleanup_result, dry_run=dry_run)
 
-    errors: list[str] = []
-    for result in cleanup_results:
-        for action in result.actions:
-            prefix = "would remove" if dry_run else "removed"
-            console.print(f"{prefix} {action.kind}: {action.path}", soft_wrap=True)
-        for warning in result.warnings:
-            console.print(f"warning: {warning}", style="yellow")
-        errors.extend(result.errors)
-    if errors:
-        for error in errors:
+
+@app.command("clean-stored-results")
+def clean_stored_results(
+    dry_run: Annotated[bool, typer.Option("--dry-run", help="Print planned deletions only.")] = False,
+) -> None:
+    """Remove the configured stored-results history root."""
+    try:
+        cleanup_result = clean_results(dry_run=dry_run)
+    except CleanupSafetyError as exc:
+        console.print(f"cleanup safety check failed: {exc}", style="red")
+        raise typer.Exit(5) from exc
+    except Exception as exc:
+        console.print(f"cleanup failed: {exc}", style="red")
+        raise typer.Exit(5) from exc
+    _print_cleanup_result(cleanup_result, dry_run=dry_run)
+
+
+def _print_cleanup_result(cleanup_result: Any, *, dry_run: bool) -> None:
+    for action in cleanup_result.actions:
+        prefix = "would remove" if dry_run else "removed"
+        console.print(f"{prefix} {action.kind}: {action.path}", soft_wrap=True)
+    for warning in cleanup_result.warnings:
+        console.print(f"warning: {warning}", style="yellow")
+    if cleanup_result.errors:
+        for error in cleanup_result.errors:
             console.print(error, style="red")
         raise typer.Exit(5)
     raise typer.Exit(0)

@@ -455,7 +455,7 @@ def test_runner_records_resolved_branch_names_labels_and_worktrees(tmp_path: Pat
     assert "progress: running candidates" in output.getvalue()
     assert "progress: writing final summary" in output.getvalue()
     summary_output = output.getvalue().split("progress: writing final summary", 1)[1]
-    assert "eval-feia results" in summary_output
+    assert "eval-feia run summary" in summary_output
     assert "CANDIDATE  BRANCH" in summary_output
     assert "eval/branch-run/duplicate" in summary_output
     assert "eval/branch-run/duplicate-2" in summary_output
