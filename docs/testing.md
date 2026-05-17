@@ -48,6 +48,18 @@ Verify:
 - generated worktree paths use the run directory plus candidate-id leaf, not repeated base
   ref/SHA/branch metadata
 
+### Stored results and SQLite index
+
+Verify:
+
+- `run` creates durable metadata, output, summary, stdout, stderr, and run logs
+- `results list/show/path/cat` read stored results without contacting opencode
+- SQLite schema version 1 creates `runs` and `run_events`
+- SQLite list filters support status, branch, and label
+- saved artifact listing backfills an empty SQLite index idempotently
+- `clean` marks deleted generated outputs as missing in SQLite metadata
+- `clean --db` deletes only the manifest-recorded default DB and rejects custom `EVAL_FEIA_DB_PATH`
+
 ### Runner behavior
 
 Verify:
@@ -95,11 +107,17 @@ opencode serve --hostname 127.0.0.1 --port 4096
 
 eval-feia run --prompt-file examples/prompt.md --repo .
 
+eval-feia list
+
+eval-feia ls --status success --branch HEAD
+
 eval-feia results list
 
 eval-feia results show <run-id>
 
 eval-feia clean .eval-feia/runs/<run-id>/manifest.json --dry-run
+
+eval-feia clean .eval-feia/runs/<run-id>/manifest.json --db --dry-run
 
 eval-feia clean --results --dry-run
 ```

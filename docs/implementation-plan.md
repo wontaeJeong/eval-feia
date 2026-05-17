@@ -1,8 +1,10 @@
 # Implementation Plan
 
+This document records the implemented MVP shape after the `init-v3`, `db`, and `list` branch work was integrated.
+
 ## Phase 0: Repository bootstrap
 
-Create Python project structure:
+Implemented Python project structure:
 
 ```text
 pyproject.toml
@@ -13,7 +15,7 @@ tests/
 examples/
 ```
 
-Add dependencies:
+Runtime dependencies remain:
 
 ```toml
 dependencies = [
@@ -24,46 +26,13 @@ dependencies = [
 ]
 ```
 
-Dev dependencies:
-
-```toml
-[project.optional-dependencies]
-dev = ["pytest", "respx", "pytest-asyncio", "ruff", "mypy"]
-```
-
 ## Phase 1: Runtime models and manifest
 
-Implement:
-
-- `config.py`
-- `manifest.py`
-- schema validation
-- path resolution
-- JSON serialization
+Implemented typed runtime configuration, manifest schemas, path resolution, generated branch/worktree metadata, run labels, and JSON serialization. Manifests now include the default SQLite DB path when that DB is owned by the generated output root.
 
 ## Phase 2: Opencode REST client
 
-Implement `opencode_client.py`.
-
-Required methods:
-
-```python
-health()
-path(cwd)
-project_current(cwd)
-config(cwd)
-vcs(cwd)
-session_create(cwd, title)
-session_get(cwd, session_id)
-session_status(cwd)
-session_prompt(cwd, session_id, prompt, command=None, agent=None, model=None)
-session_abort(cwd, session_id)
-session_messages(cwd, session_id)
-session_children(cwd, session_id)
-session_todo(cwd, session_id)
-session_diff(cwd, session_id)
-file_status(cwd)
-```
+Implemented `opencode_client.py` for health, path/project preflight, session creation, synchronous message and command sends, aborts, session/message/children/todo/diff collection, and file status.
 
 Client invariant:
 
@@ -73,51 +42,53 @@ Client invariant:
 
 ## Phase 3: Git worktree manager
 
-Implement:
-
-- base SHA resolution
-- worktree add
-- worktree remove
-- local git status/diff collection
+Implemented base SHA resolution, run-scoped branch creation, compact worktree paths, worktree removal, and local git status/diff collection.
 
 ## Phase 4: Runner
 
-Implement `run` orchestration:
+Implemented `run` orchestration:
 
-- preflight server
-- create run directory
-- create worktrees
-- execute candidates sequentially first
-- add bounded concurrency after sequential path is stable
-- collect results
-- run validation
-- write summaries
+- creates durable stored result records
+- records SQLite run metadata and lifecycle events
+- preflights the external opencode server
+- creates run artifact directories and worktrees
+- executes candidates sequentially through REST
+- collects opencode and local artifacts
+- runs validation commands
+- writes summaries
+- prints plain final output
 
-## Phase 5: Clean command
+## Phase 5: Listing, results, and indexing
 
-Implement manifest-based cleanup with dry-run.
+Implemented:
 
-Safety checks are mandatory before any deletion.
+- read-only `list` / `ls` for saved run artifacts
+- SQLite-backed `list` / `ls` when `EVAL_FEIA_DB_PATH` or index filters are used
+- idempotent SQLite backfill from existing file outputs
+- read-only `results list/show/path/cat` for durable stored result history
 
-## Phase 6: Tests
+## Phase 6: Clean command
 
-Add unit tests and fake-server integration tests. Make request-shape tests strict.
+Implemented manifest-based cleanup with dry-run, force handling, stored-results cleanup through `clean --results`, SQLite output-missing marking, and default DB deletion only through manifest-validated `clean --db`.
 
-## Phase 7: Documentation and examples
+## Phase 7: Tests
 
-Add:
+Implemented unit tests and fake-server integration tests covering request shapes, directory context, run orchestration, collection, cleanup safety, stored results, generated run IDs, saved-run listing, SQLite indexing, and CLI help/output behavior.
 
-- `examples/prompt.md`
-- README quickstart
-- troubleshooting section
+## Phase 8: Documentation and examples
+
+Documentation now covers the REST-only execution contract, direct CLI flags, command mode, generated artifacts, durable stored results, SQLite metadata index, list/results/clean usage, safety rules, and manual smoke testing.
 
 ## MVP completion checklist
 
-- [ ] `eval-feia run --prompt-file examples/prompt.md --repo .` works against fake server.
-- [ ] Health check retry works.
-- [ ] Worktree paths are printed.
-- [ ] Session creation uses correct directory context.
-- [ ] Prompt uses REST `/session/{id}/message`, or `/session/{id}/command` when command mode is configured.
-- [ ] Results are collected and summarized automatically.
-- [ ] `clean --dry-run` and `clean` work safely.
-- [ ] Tests cover request context and cleanup safety.
+- [x] `eval-feia run --prompt-file examples/prompt.md --repo .` works against the fake server path covered by tests.
+- [x] Health check retry works.
+- [x] Worktree paths are printed.
+- [x] Session creation uses correct directory context.
+- [x] Prompt uses REST `/session/{id}/message`, or `/session/{id}/command` when command mode is configured.
+- [x] Results are collected and summarized automatically.
+- [x] Stored result history is written and inspectable.
+- [x] SQLite metadata indexing and filtered listing work.
+- [x] `list` and `ls` inspect saved run artifacts read-only.
+- [x] `clean --dry-run`, `clean`, `clean --results`, and `clean --db` are safety-gated.
+- [x] Tests cover request context, cleanup safety, stored results, SQLite index behavior, saved run listing, and final summary generation.
