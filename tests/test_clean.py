@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from eval_feia.clean import clean_resources, plan_cleanup
+from eval_feia.clean import clean_resources, clean_results, plan_cleanup, plan_results_cleanup
 from eval_feia.errors import CleanupSafetyError
 from eval_feia.git_worktree import GitWorktreeManager
 from eval_feia.manifest import (
@@ -18,6 +18,7 @@ from eval_feia.manifest import (
     load_manifest,
     write_manifest,
 )
+from eval_feia.results_store import complete_run_record, start_run_record
 
 
 def test_clean_dry_run_does_not_delete_and_clean_removes_only_manifest_paths(tmp_path: Path) -> None:
@@ -129,6 +130,59 @@ def test_manifest_loader_discards_legacy_candidate_label(tmp_path: Path) -> None
     loaded = load_manifest(manifest_path)
 
     assert not hasattr(loaded.candidates[0], "label")
+
+
+def test_clean_results_removes_marked_results_root_only(tmp_path: Path) -> None:
+    root = tmp_path / "results"
+    run_id = "20260517-143012-a1b2c3"
+    start_run_record(run_id, cwd=tmp_path, branch="HEAD", label=None, command=None, root=root)
+    complete_run_record(
+        run_id,
+        status="success",
+        exit_code=0,
+        output_text="ok\n",
+        summary_text="ok\n",
+        stdout_text="",
+        stderr_text="",
+        root=root,
+    )
+    unrelated = tmp_path / "unrelated"
+    unrelated.mkdir()
+
+    dry = clean_results(root, dry_run=True)
+    assert dry.actions[0].path == root.resolve(strict=False)
+    assert root.exists()
+
+    result = clean_results(root)
+    assert result.errors == []
+    assert not root.exists()
+    assert unrelated.exists()
+
+
+def test_clean_results_refuses_unmarked_directory_even_with_runs_name(tmp_path: Path) -> None:
+    root = tmp_path / "not-results"
+    (root / "runs").mkdir(parents=True)
+
+    with pytest.raises(CleanupSafetyError, match="marker"):
+        plan_results_cleanup(root)
+
+
+def test_clean_results_refuses_symlink_root_and_parent(tmp_path: Path) -> None:
+    target = tmp_path / "target"
+    target.mkdir()
+    link = tmp_path / "results-link"
+    link.symlink_to(target, target_is_directory=True)
+
+    with pytest.raises(CleanupSafetyError, match="symlink"):
+        plan_results_cleanup(link)
+
+    parent_target = tmp_path / "parent-target"
+    parent_target.mkdir()
+    parent_link = tmp_path / "parent-link"
+    parent_link.symlink_to(parent_target, target_is_directory=True)
+
+    with pytest.raises(CleanupSafetyError, match="symlink"):
+        plan_results_cleanup(parent_link / "results")
 
 
 def _manifest(tmp_path: Path) -> Manifest:
