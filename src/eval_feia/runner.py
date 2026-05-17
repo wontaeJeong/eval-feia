@@ -533,11 +533,10 @@ def _execute_candidates(
     console: Console,
 ) -> list[CandidateResult]:
     lock = threading.Lock()
-    results: list[CandidateResult] = []
     specs_by_id = {spec.id: spec for spec in specs}
 
     def run_one(record: CandidateManifestRecord) -> CandidateResult:
-        result = _execute_candidate(
+        return _execute_candidate(
             config,
             specs_by_id[record.id].prompt,
             client,
@@ -547,9 +546,6 @@ def _execute_candidates(
             console,
             lock,
         )
-        with lock:
-            results.append(result)
-        return result
 
     if config.run.concurrency <= 1 or len(records) <= 1:
         return [run_one(record) for record in records]
