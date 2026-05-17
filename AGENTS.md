@@ -17,7 +17,7 @@ The MVP is REST-only. Do not implement execution by shelling out to `opencode ru
 7. Validate returned session directory/path information when available.
 8. Use manifest-based cleanup only.
 9. `run` must perform collection and final summary automatically.
-10. Keep the CLI surface minimal: `run` and `clean` only for MVP.
+10. Keep the CLI surface minimal: `run`, read-only `list` / `ls`, and `clean` only for MVP.
 
 ## Source constraints
 
@@ -54,6 +54,7 @@ eval-feia/
     git_worktree.py
     opencode_client.py
     runner.py
+    listing.py
     collector.py
     summary.py
     clean.py
@@ -116,6 +117,7 @@ Tests must cover:
 - Child session discovery.
 - Manifest creation and cleanup safety.
 - Final summary generation.
+- Saved run listing and `ls` alias behavior.
 
 ## Do not implement
 
