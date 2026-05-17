@@ -37,6 +37,7 @@ from .manifest import (
 )
 from .opencode_client import OpencodeClient, normalize_command
 from .plain_table import print_plain_table
+from .records import CandidateResult, CandidateSummary, RunSummary, ValidationCommandResult, ValidationResult
 from .storage import (
     add_run_event,
     create_run,
@@ -52,7 +53,7 @@ from .summary import parse_numstat, print_summary, write_run_summary
 class RunOutcome:
     run_id: str
     output_dir: Path
-    summary: dict[str, Any]
+    summary: RunSummary
     passed: bool
 
 
@@ -530,12 +531,12 @@ def _execute_candidates(
     manifest: Manifest,
     records: list[CandidateManifestRecord],
     console: Console,
-) -> list[dict[str, Any]]:
+) -> list[CandidateResult]:
     lock = threading.Lock()
-    results: list[dict[str, Any]] = []
+    results: list[CandidateResult] = []
     specs_by_id = {spec.id: spec for spec in specs}
 
-    def run_one(record: CandidateManifestRecord) -> dict[str, Any]:
+    def run_one(record: CandidateManifestRecord) -> CandidateResult:
         result = _execute_candidate(
             config,
             specs_by_id[record.id].prompt,
@@ -555,7 +556,7 @@ def _execute_candidates(
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=config.run.concurrency) as executor:
         future_map = {executor.submit(run_one, record): record for record in records}
-        ordered: dict[str, dict[str, Any]] = {}
+        ordered: dict[str, CandidateResult] = {}
         for future in concurrent.futures.as_completed(future_map):
             record = future_map[future]
             ordered[record.id] = future.result()
@@ -571,13 +572,13 @@ def _execute_candidate(
     record: CandidateManifestRecord,
     console: Console,
     lock: threading.Lock,
-) -> dict[str, Any]:
+) -> CandidateResult:
     started = time.monotonic()
     started_at = utc_now_iso()
     error: ErrorRecord | None = None
     session_id: str | None = None
     collection_errors: list[ErrorRecord] = []
-    validation = {"commands": [], "passed": True}
+    validation: ValidationResult = {"commands": [], "passed": True}
     stats = {"files_changed": 0, "additions": 0, "deletions": 0}
     result_dir = record.result_dir
     worktree = record.worktree_path
@@ -650,39 +651,20 @@ def _execute_candidate(
     completed_at = utc_now_iso()
     status = "passed" if error is None else "failed"
     validation_status = "passed" if validation.get("passed") else "failed"
-    candidate_result = {
-        "candidate_id": record.id,
-        "base_ref": manifest.repo.base_ref,
-        "base_sha": manifest.repo.base_sha,
-        "branch_name": record.branch_name,
-        "status": status,
-        "worktree_path": str(worktree),
-        "session_id": session_id,
-        "started_at": started_at,
-        "completed_at": completed_at,
-        "duration_seconds": round(time.monotonic() - started, 3),
-        "validation_status": validation_status,
-        "opencode": {
-            "session": "session.json",
-            "messages": "messages.json",
-            "children": "children.json",
-            "todo": "todo.json",
-            "diff": "diff.json",
-            "file_status": "file-status.json",
-        },
-        "local": {
-            "git_status": "git-status.txt",
-            "git_diff": "local-git-diff.patch",
-            "validation": "validation.json",
-        },
-        "summary": {**stats, "final_output_file": "final-output.md"},
-        "collection_errors": [item.to_dict() for item in collection_errors],
-        "error": error.to_dict() if error else None,
-    }
-    if record.eval_id is not None:
-        candidate_result["eval_id"] = record.eval_id
-    if record.requested_branch_name is not None:
-        candidate_result["requested_branch_name"] = record.requested_branch_name
+    candidate_result = _build_candidate_result(
+        manifest,
+        record,
+        worktree=worktree,
+        session_id=session_id,
+        started_at=started_at,
+        completed_at=completed_at,
+        duration_seconds=round(time.monotonic() - started, 3),
+        status=status,
+        validation_status=validation_status,
+        stats=stats,
+        collection_errors=collection_errors,
+        error=error,
+    )
     write_json(result_dir / "validation.json", validation)
     if error:
         write_json(result_dir / "error.json", error.to_dict())
@@ -704,6 +686,58 @@ def _best_effort_preflight(client: OpencodeClient, worktree: Path) -> None:
                 raise
         except httpx.HTTPError:
             raise
+
+
+def _build_candidate_result(
+    manifest: Manifest,
+    record: CandidateManifestRecord,
+    *,
+    worktree: Path,
+    session_id: str | None,
+    started_at: str,
+    completed_at: str,
+    duration_seconds: float,
+    status: str,
+    validation_status: str,
+    stats: dict[str, int],
+    collection_errors: list[ErrorRecord],
+    error: ErrorRecord | None,
+) -> CandidateResult:
+    summary: CandidateSummary = {**stats, "final_output_file": "final-output.md"}
+    result: CandidateResult = {
+        "candidate_id": record.id,
+        "base_ref": manifest.repo.base_ref,
+        "base_sha": manifest.repo.base_sha,
+        "branch_name": record.branch_name,
+        "status": status,
+        "worktree_path": str(worktree),
+        "session_id": session_id,
+        "started_at": started_at,
+        "completed_at": completed_at,
+        "duration_seconds": duration_seconds,
+        "validation_status": validation_status,
+        "opencode": {
+            "session": "session.json",
+            "messages": "messages.json",
+            "children": "children.json",
+            "todo": "todo.json",
+            "diff": "diff.json",
+            "file_status": "file-status.json",
+        },
+        "local": {
+            "git_status": "git-status.txt",
+            "git_diff": "local-git-diff.patch",
+            "validation": "validation.json",
+        },
+        "summary": summary,
+        "collection_errors": [item.to_dict() for item in collection_errors],
+        "error": error.to_dict() if error else None,
+    }
+    if record.eval_id is not None:
+        result["eval_id"] = record.eval_id
+    if record.requested_branch_name is not None:
+        result["requested_branch_name"] = record.requested_branch_name
+    return result
 
 
 def _session_id(session: dict[str, Any]) -> str:
@@ -803,10 +837,10 @@ def _worktree_path_slug(candidate_id: str) -> str:
     return sanitize_path_slug(candidate_id, fallback="candidate")
 
 
-def _run_validation(config: EvalConfig, worktree: Path, result_dir: Path) -> dict[str, Any]:
+def _run_validation(config: EvalConfig, worktree: Path, result_dir: Path) -> ValidationResult:
     validation_dir = result_dir / "validation"
     validation_dir.mkdir(parents=True, exist_ok=True)
-    records: list[dict[str, Any]] = []
+    records: list[ValidationCommandResult] = []
     passed = True
     for command_config in config.validation.commands:
         started_at = utc_now_iso()
