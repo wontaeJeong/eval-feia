@@ -18,6 +18,7 @@ from eval_feia.manifest import (
     load_manifest,
     write_manifest,
 )
+from eval_feia.storage import create_run, db_path_for_output_root, default_db_path, list_runs
 
 
 def test_clean_dry_run_does_not_delete_and_clean_removes_only_manifest_paths(tmp_path: Path) -> None:
@@ -30,6 +31,13 @@ def test_clean_dry_run_does_not_delete_and_clean_removes_only_manifest_paths(tmp
     unrelated = tmp_path / "unrelated"
     unrelated.mkdir()
     manifest_path = write_manifest(manifest)
+    db_path = default_db_path(manifest.output_dir.parent)
+    create_run(
+        db_path,
+        run_id=manifest.run_id,
+        status="success",
+        output_dir=manifest.output_dir,
+    )
 
     dry = clean_resources(manifest_path, dry_run=True, use_git=False)
     assert dry.dry_run is True
@@ -41,6 +49,8 @@ def test_clean_dry_run_does_not_delete_and_clean_removes_only_manifest_paths(tmp
     assert not candidate.worktree_path.exists()
     assert not manifest.output_dir.exists()
     assert unrelated.exists()
+    metadata = json.loads(list_runs(db_path)[0]["metadata_json"])
+    assert metadata["output_missing"] is True
 
 
 def test_clean_refuses_repo_root_and_home_like_unsafe_paths(tmp_path: Path) -> None:
@@ -48,6 +58,50 @@ def test_clean_refuses_repo_root_and_home_like_unsafe_paths(tmp_path: Path) -> N
     manifest.output_dir = manifest.repo.path
     with pytest.raises(CleanupSafetyError):
         plan_cleanup(manifest)
+
+
+def test_clean_db_refuses_environment_override_delete(monkeypatch, tmp_path: Path) -> None:
+    manifest = _manifest(tmp_path)
+    manifest.output_dir.mkdir(parents=True)
+    manifest.worktree_root.mkdir(parents=True)
+    manifest.candidates[0].worktree_path.mkdir(parents=True)
+    manifest.candidates[0].result_dir.mkdir(parents=True)
+    manifest_path = write_manifest(manifest)
+    unrelated = tmp_path / "unrelated.sqlite3"
+    unrelated.write_text("do not delete", encoding="utf-8")
+    monkeypatch.setenv("EVAL_FEIA_DB_PATH", str(unrelated))
+
+    with pytest.raises(CleanupSafetyError, match="EVAL_FEIA_DB_PATH"):
+        clean_resources(manifest_path, dry_run=True, remove_db=True, use_git=False)
+
+    assert unrelated.exists()
+
+
+def test_clean_db_requires_manifest_recorded_database(tmp_path: Path) -> None:
+    manifest = _manifest(tmp_path)
+    manifest.db_path = None
+    manifest.output_dir.mkdir(parents=True)
+    manifest.worktree_root.mkdir(parents=True)
+    manifest.candidates[0].worktree_path.mkdir(parents=True)
+    manifest.candidates[0].result_dir.mkdir(parents=True)
+    manifest_path = write_manifest(manifest)
+
+    with pytest.raises(CleanupSafetyError, match="database path"):
+        clean_resources(manifest_path, dry_run=True, remove_db=True, use_git=False)
+
+
+def test_clean_db_uses_manifest_recorded_default_database(tmp_path: Path) -> None:
+    manifest = _manifest(tmp_path)
+    manifest.output_dir.mkdir(parents=True)
+    manifest.worktree_root.mkdir(parents=True)
+    manifest.candidates[0].worktree_path.mkdir(parents=True)
+    manifest.candidates[0].result_dir.mkdir(parents=True)
+    manifest_path = write_manifest(manifest)
+
+    result = clean_resources(manifest_path, dry_run=True, remove_db=True, use_git=False)
+
+    assert result.actions[-1].kind == "database"
+    assert result.actions[-1].path == db_path_for_output_root(manifest.output_dir.parent)
 
 
 def test_clean_refuses_manifest_outside_output_dir(tmp_path: Path) -> None:
@@ -154,6 +208,7 @@ def _manifest_for_repo(repo: Path) -> Manifest:
         server=ServerRecord(url="http://127.0.0.1:4096", version="test"),
         output_dir=output,
         worktree_root=worktree_root,
+        db_path=db_path_for_output_root(output.parent),
         candidates=[candidate],
     )
 

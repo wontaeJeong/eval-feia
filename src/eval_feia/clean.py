@@ -7,6 +7,14 @@ from pathlib import Path
 from .errors import CleanupSafetyError
 from .git_worktree import GitWorktreeManager
 from .manifest import Manifest, load_manifest
+from .storage import (
+    DB_ENV_VAR,
+    db_path_for_output_root,
+    default_db_path,
+    delete_db,
+    format_storage_error,
+    mark_output_missing,
+)
 
 
 @dataclass(slots=True)
@@ -20,6 +28,7 @@ class CleanupResult:
     actions: list[CleanupAction]
     errors: list[str]
     dry_run: bool
+    warnings: list[str]
 
 
 def plan_cleanup(manifest: Manifest, manifest_path: Path | None = None) -> list[CleanupAction]:
@@ -45,25 +54,48 @@ def clean_resources(
     dry_run: bool = False,
     force: bool = False,
     use_git: bool = True,
+    remove_db: bool = False,
 ) -> CleanupResult:
     manifest = load_manifest(manifest_path)
     actions = plan_cleanup(manifest, manifest_path)
+    db_path = default_db_path(manifest.output_dir.parent)
+    if remove_db:
+        safe_db_path = db_path_for_output_root(manifest.output_dir.parent)
+        if db_path != safe_db_path:
+            raise CleanupSafetyError(
+                f"refusing to delete {DB_ENV_VAR} override from clean --db; "
+                f"delete it manually if intended: {db_path}"
+            )
+        if manifest.db_path is None:
+            raise CleanupSafetyError("manifest does not record a SQLite database path")
+        recorded_db_path = manifest.db_path.expanduser().resolve(strict=False)
+        if recorded_db_path != safe_db_path:
+            raise CleanupSafetyError("manifest SQLite database path must match the output root database")
+        actions.append(CleanupAction("database", recorded_db_path))
     errors: list[str] = []
+    warnings: list[str] = []
     if dry_run:
-        return CleanupResult(actions, errors, dry_run=True)
+        return CleanupResult(actions, errors, dry_run=True, warnings=warnings)
 
     manager = GitWorktreeManager(manifest.repo.path)
     for action in actions:
         try:
             if action.kind == "worktree":
                 _remove_worktree(manager, action.path, force=force, use_git=use_git)
+            elif action.kind == "database":
+                delete_db(action.path)
             elif action.path.exists():
                 shutil.rmtree(action.path)
         except Exception as exc:
             errors.append(f"failed to remove {action.path}: {exc}")
             if not force:
                 break
-    return CleanupResult(actions, errors, dry_run=False)
+    if not errors and not remove_db:
+        try:
+            mark_output_missing(db_path, run_id=manifest.run_id, output_dir=manifest.output_dir)
+        except Exception as exc:
+            warnings.append(f"failed to update SQLite index: {format_storage_error(exc, db_path)}")
+    return CleanupResult(actions, errors, dry_run=False, warnings=warnings)
 
 
 def _remove_worktree(
