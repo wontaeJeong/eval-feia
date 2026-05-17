@@ -18,7 +18,7 @@ results/
     summary.txt
 ```
 
-`metadata.json` keeps stable keys for later migration to SQLite:
+`metadata.json` keeps stable keys for durable local history and for SQLite index backfill:
 
 ```json
 {
@@ -175,7 +175,7 @@ unexpected_error
 
 ## SQLite metadata index
 
-File outputs remain authoritative. The local SQLite database is a query index stored at
+Generated artifact files and durable stored-result files remain authoritative. The local SQLite database is a query index stored at
 `<output-root>/eval-feia.sqlite3` by default, or at `EVAL_FEIA_DB_PATH` when that
 environment variable is set.
 

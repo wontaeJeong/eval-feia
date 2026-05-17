@@ -12,12 +12,26 @@ The MVP CLI is arguments-only. It does not load YAML, JSON, or TOML config files
 - `--repo PATH`: git repository path. Defaults to the current directory.
 - `--branch REF`: base ref for generated worktrees. Defaults to `HEAD`.
 - `--attempts N`: number of candidates to run. Defaults to `1`.
-- `--label TEXT`: run-level human-readable label used in logs and summaries.
+- `--label TEXT`: run-level human-readable label used in logs, stored results, summaries, and indexed listings.
 - `--command NAME`: optional opencode slash command. A leading slash is accepted and stripped before sending the HTTP request body.
-- `--output-dir PATH`: run output root. Defaults to `.eval-feia/runs`; `list` / `ls` accept the same flag to inspect custom run roots.
+- `--output-dir PATH`: generated run artifact root. Defaults to `.eval-feia/runs`; `list` / `ls` accept the same flag to inspect custom run roots.
+
+## Environment Inputs
 
 Stored result records are separate from generated run artifacts. They default to
 `$HOME/.eval-feia/results` and can be overridden with `EVAL_FEIA_RESULTS_DIR`.
+
+The SQLite metadata index defaults to `<output-root>/eval-feia.sqlite3`, where `<output-root>` is the generated artifact root. Set `EVAL_FEIA_DB_PATH` to use a custom database path. Custom DB paths are used for indexing and listing but are not deleted by `clean --db`.
+
+## Listing Configuration
+
+`eval-feia list` and `eval-feia ls` read saved run artifact directories by default. They switch to the SQLite metadata index when `EVAL_FEIA_DB_PATH` is set or when one of these filters is supplied:
+
+- `--status pending|running|success|failed|cancelled`
+- `--branch REF`
+- `--label TEXT`
+
+`--limit`, `--output-dir`, and `--json` apply to both listing modes.
 
 ## Internal Model
 

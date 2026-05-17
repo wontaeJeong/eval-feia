@@ -3,7 +3,7 @@
 ## Preflight
 
 1. Build runtime config from CLI arguments.
-2. Resolve repo path, prompt path, output root, worktree root.
+2. Resolve repo path, prompt path, generated artifact output root, worktree root, stored result root, and SQLite DB path.
 3. Check git repository.
 4. Check base ref.
 5. Read prompt file.
@@ -13,7 +13,7 @@
 GET /global/health
 ```
 
-`run` first creates a stored result directory and prints it:
+`run` first creates a durable stored result directory, starts a stored result record, and prints it:
 
 ```text
 Run ID: <run-id>
@@ -55,7 +55,7 @@ Print created worktrees as a compact CLI table:
 1  /abs/path/.eval-feia/worktrees/<run-id>/command-body-test
 ```
 
-Record each worktree and its actual branch name in `manifest.json` as soon as it is created.
+Record each worktree and its actual branch name in `manifest.json` as soon as it is created. When the SQLite DB path is the default database under the generated artifact root, record that DB path in the manifest for `clean --db`.
 
 ## Candidate execution
 
@@ -140,7 +140,7 @@ MVP does not need to drive child sessions directly. It only needs to detect and 
 
 ## Final summary
 
-At the end of `run`, print the result table and write the summary files. Do not repeat the
+At the end of `run`, print the result table, write generated summary files, update the SQLite index, and complete the durable stored result record. Do not repeat the
 run metadata already printed before candidate execution.
 
 ```text
@@ -151,7 +151,7 @@ cand-001   eval/<run-id>/foo  passed  passed      5      120        13         s
 cand-002   eval/<run-id>/bar  failed  failed      2      44         7          ses_...  /abs/...
 ```
 
-Also write `run-summary.md` and `run-summary.json`. JSON candidate records include
+Also write `run-summary.md` and `run-summary.json` under the generated artifact output root, and copy text summaries into the durable stored result root. JSON candidate records include
 `eval_id` only when it differs from the candidate ID, plus `base_ref`, `base_sha`,
 `requested_branch_name`, `branch_name`, `worktree_path`, `session_id`, and `status`;
 `branch_name` is the branch actually created or used after suffix resolution. The run label is
