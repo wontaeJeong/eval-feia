@@ -14,6 +14,7 @@ from rich.console import Console
 from eval_feia.config import EvalConfig
 from eval_feia.opencode_client import DIRECTORY_HEADER, OpencodeClient
 from eval_feia.runner import _health_with_retry, generate_run_id, run_evaluation
+from eval_feia.storage import default_db_path, list_runs
 
 
 def test_runner_success_collects_children_validation_and_summary(tmp_path: Path) -> None:
@@ -93,6 +94,11 @@ def test_runner_success_collects_children_validation_and_summary(tmp_path: Path)
     assert children[0]["id"] == "ses_child"
     assert (outcome.output_dir / "run-summary.json").exists()
     assert outcome.summary["candidates"][0]["summary"]["files_changed"] == 1
+    indexed = list_runs(default_db_path(config.run.output_root), status="success")
+    assert indexed[0]["id"] == "test-run"
+    assert indexed[0]["branch"] == "HEAD"
+    assert indexed[0]["output_dir"] == str(outcome.output_dir)
+    assert indexed[0]["summary_path"] == str(outcome.output_dir / "run-summary.json")
     assert any(req.url.path == "/session/ses_1/message" and req.method == "POST" for req in seen)
     assert not any("prompt_async" in req.url.path for req in seen)
     for request in seen:
@@ -495,7 +501,7 @@ def _config(
     model: dict[str, str] | None = None,
     validation_command: str | None = None,
 ) -> EvalConfig:
-    validation = {"commands": []}
+    validation: dict[str, object] = {"commands": []}
     if validation_command:
         validation = {
             "commands": [
