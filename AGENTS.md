@@ -15,9 +15,9 @@ The MVP is REST-only. Do not implement execution by shelling out to `opencode ru
 5. For GET/HEAD requests, prefer a `directory` query parameter with the directory URL-encoded exactly once.
 6. Use absolute paths for worktree directories.
 7. Validate returned session directory/path information when available.
-8. Use manifest-based cleanup for generated worktrees/run artifacts; generated roots must be marker-validated before deletion; stored result history cleanup must require an explicit `clean --results` action and a validated eval-feia results root; SQLite DB deletion must require explicit `clean --db` and a manifest-recorded default DB path.
-9. `run` must perform collection and final summary automatically.
-10. Keep the CLI surface minimal: `run`, read-only `list` / `ls`, `clean`, and read-only `results` inspection for MVP.
+8. Use manifest-based cleanup for generated worktrees/run artifacts; generated roots must be marker-validated before deletion; stored result history cleanup must require an explicit `clean-stored-results` action and a validated eval-feia results root; SQLite DB deletion must require explicit `clean-run-artifacts --delete-index` and a manifest-recorded default DB path.
+9. `run-eval` must perform collection and final summary automatically.
+10. Keep the CLI surface explicit and minimal: `run-eval`, read-only `list-run-artifacts`, `clean-run-artifacts`, `clean-stored-results`, and read-only stored-result inspection commands (`list-stored-results`, `show-stored-result`, `print-stored-result-path`, `print-stored-result-file`) for MVP.
 
 ## Source constraints
 
@@ -77,7 +77,7 @@ eval-feia/
 - Use typed dataclasses or pydantic models for config, manifest, and run result records.
 - Never log secrets, Authorization headers, provider API keys, or full auth config.
 - Include run IDs and candidate IDs in logs.
-- Generated worktree/run artifact deletion must go through manifest and marker validation; stored result history deletion must require explicit `clean --results` and a validated eval-feia results root; SQLite DB deletion must require explicit `clean --db` and a manifest-recorded default DB path.
+- Generated worktree/run artifact deletion must go through manifest and marker validation; stored result history deletion must require explicit `clean-stored-results` and a validated eval-feia results root; SQLite DB deletion must require explicit `clean-run-artifacts --delete-index` and a manifest-recorded default DB path.
 
 ## Git history
 
@@ -128,7 +128,7 @@ Tests must cover:
 - Child session discovery.
 - Manifest creation and cleanup safety.
 - Final summary generation.
-- Saved run listing and `ls` alias behavior.
+- Generated run artifact listing behavior with `list-run-artifacts`.
 - Stored results inspection behavior.
 - SQLite metadata indexing, filtering, and cleanup safety.
 
@@ -143,4 +143,4 @@ Do not add these MVP commands unless explicitly requested later:
 - `report`
 - `status`
 
-Their behavior is already covered by `run` or intentionally out of scope.
+Their behavior is already covered by `run-eval` or intentionally out of scope.

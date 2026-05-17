@@ -17,10 +17,10 @@ Build a local CLI tool that:
 5. Writes structured run artifacts under the configured output root.
 6. Writes durable stored result history under `EVAL_FEIA_RESULTS_DIR` or `$HOME/.eval-feia/results`.
 7. Indexes run metadata in a local SQLite database for filtered listing.
-8. Prints a final result summary automatically at the end of `run`.
-9. Lists saved run results through a read-only `list` / `ls` command.
-10. Inspects durable stored results through a read-only `results` command group.
-11. Cleans generated worktrees and result files only through manifest-based `clean`; stored results and the default SQLite DB require explicit flags.
+8. Prints a final result summary automatically at the end of `run-eval`.
+9. Lists generated run artifacts through the read-only `list-run-artifacts` command.
+10. Inspects durable stored results through read-only stored-result inspection commands.
+11. Cleans generated worktrees and result files only through manifest-based `clean-run-artifacts`; stored results use `clean-stored-results`, and default SQLite DB deletion requires `clean-run-artifacts --delete-index`.
 
 ## Non-goals
 
@@ -46,7 +46,7 @@ opencode serve --hostname 127.0.0.1 --port 4096
 3. User runs:
 
 ```bash
-eval-feia run --prompt-file prompt.md --repo . --branch HEAD --attempts 1
+eval-feia run-eval --prompt-file prompt.md --repo . --branch HEAD --attempts 1
 ```
 
 4. `eval-feia` prints:
@@ -63,51 +63,51 @@ eval-feia run --prompt-file prompt.md --repo . --branch HEAD --attempts 1
 5. User can inspect saved runs:
 
 ```bash
-eval-feia list
-eval-feia ls --limit 5
-eval-feia list --output-dir ./custom-runs
-EVAL_FEIA_DB_PATH=/tmp/eval-feia.sqlite3 eval-feia list --json
-eval-feia ls --status success --branch HEAD
+eval-feia list-run-artifacts
+eval-feia list-run-artifacts --limit 5
+eval-feia list-run-artifacts --output-dir ./custom-runs
+EVAL_FEIA_DB_PATH=/tmp/eval-feia.sqlite3 eval-feia list-run-artifacts --json
+eval-feia list-run-artifacts --status success --branch HEAD
 ```
 
 6. User can inspect durable stored results:
 
 ```bash
-eval-feia results list
-eval-feia results show <run-id>
-eval-feia results path <run-id>
-eval-feia results cat <run-id> output.txt
+eval-feia list-stored-results
+eval-feia show-stored-result <run-id>
+eval-feia print-stored-result-path <run-id>
+eval-feia print-stored-result-file <run-id> output.txt
 ```
 
 7. User optionally removes generated resources:
 
 ```bash
-eval-feia clean .eval-feia/runs/<run-id>/manifest.json
-eval-feia clean .eval-feia/runs/<run-id>/manifest.json --db
-eval-feia clean --results
+eval-feia clean-run-artifacts .eval-feia/runs/<run-id>/manifest.json
+eval-feia clean-run-artifacts .eval-feia/runs/<run-id>/manifest.json --delete-index
+eval-feia clean-stored-results
 ```
 
 ## MVP command surface
 
-### `run`
+### `run-eval`
 
-`run` performs preflight, worktree creation, REST execution, collection, local validation, final summary output, stored result persistence, and SQLite metadata indexing.
+`run-eval` performs preflight, worktree creation, REST execution, collection, local validation, final summary output, stored result persistence, and SQLite metadata indexing.
 
-### `list` / `ls`
+### `list-run-artifacts`
 
-`list` prints saved run results from the run output root by default, including custom roots passed with `--output-dir`. `ls` is an alias for the same handler. The command is read-only and tolerates missing or partial metadata.
+`list-run-artifacts` prints generated run artifacts from the run output root by default, including custom roots passed with `--output-dir`. The command is read-only and tolerates missing or partial metadata.
 
-When `EVAL_FEIA_DB_PATH` is set or `--status`, `--branch`, or `--label` is provided, `list` / `ls` reads the local SQLite metadata index instead and can backfill it from existing file outputs.
+When `EVAL_FEIA_DB_PATH` is set or `--status`, `--branch`, or `--label` is provided, `list-run-artifacts` reads the local SQLite metadata index instead and can backfill it from existing file outputs.
 
-### `clean`
+### `clean-run-artifacts`
 
-`clean` removes generated worktrees and result artifacts recorded in a manifest. It never kills `opencode serve`; outside manifest mode, it may remove stored result history only through the explicit `clean --results` path after validating the eval-feia results root.
+`clean-run-artifacts` removes generated worktrees and result artifacts recorded in a manifest. It never kills `opencode serve` and never removes durable stored result history.
 
-`clean --db` deletes only the manifest-recorded default SQLite database under the generated output root. Custom `EVAL_FEIA_DB_PATH` databases are never deleted automatically.
+`clean-run-artifacts --delete-index` deletes only the manifest-recorded default SQLite database under the generated output root. Custom `EVAL_FEIA_DB_PATH` databases are never deleted automatically.
 
-### `results`
+### Stored-result inspection commands
 
-`results list`, `results show <run-id>`, `results path <run-id>`, and `results cat <run-id> [file]` inspect stored local result history without contacting opencode.
+`list-stored-results`, `show-stored-result <run-id>`, `print-stored-result-path <run-id>`, and `print-stored-result-file <run-id> [file]` inspect stored local result history without contacting opencode.
 
 ## Acceptance criteria
 
@@ -123,10 +123,10 @@ A run is acceptable when all of the following are true:
 - The console output includes the stored result directory before execution and a final plain summary table after execution.
 - Generated artifacts are written under the configured output root.
 - Durable stored results are written under the configured results root.
-- SQLite run metadata is recorded when the index can be opened; index failures are surfaced as warnings during `run` and exit code `6` during indexed `list`.
-- `list` / `ls` works for saved run artifacts and SQLite filters.
-- `results` inspection works without contacting opencode.
-- `clean` only removes paths listed in the manifest after generated-root marker validation unless `--results` is explicitly used for the stored results root or `--db` is explicitly used for the manifest-recorded default SQLite DB.
+- SQLite run metadata is recorded when the index can be opened; index failures are surfaced as warnings during `run-eval` and exit code `6` during indexed `list-run-artifacts`.
+- `list-run-artifacts` works for generated run artifacts and SQLite filters.
+- stored-result inspection commands work without contacting opencode.
+- `clean-run-artifacts` only removes paths listed in the manifest after generated-root marker validation; `clean-stored-results` is required for stored results, and `clean-run-artifacts --delete-index` is required for the manifest-recorded default SQLite DB.
 
 ## Success metrics
 
