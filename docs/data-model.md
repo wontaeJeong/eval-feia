@@ -58,6 +58,7 @@ The log files are local debugging artifacts and may contain command output or er
   },
   "output_dir": "/abs/path/repo/.eval-feia/runs/20260514-123456-a1b2c3",
   "worktree_root": "/abs/path/repo/.eval-feia/worktrees/20260514-123456-a1b2c3",
+  "db_path": "/abs/path/repo/.eval-feia/runs/eval-feia.sqlite3",
   "candidates": [
     {
       "id": "command-body-test",
@@ -171,3 +172,23 @@ unexpected_error
   "passed": true
 }
 ```
+
+## SQLite metadata index
+
+File outputs remain authoritative. The local SQLite database is a query index stored at
+`<output-root>/eval-feia.sqlite3` by default, or at `EVAL_FEIA_DB_PATH` when that
+environment variable is set.
+
+Default DB paths are recorded in new run manifests so `clean --db` can delete them through
+the same manifest validation flow. Custom `EVAL_FEIA_DB_PATH` databases are not deleted by
+`clean --db`; remove them manually when needed.
+
+Schema versioning uses `PRAGMA user_version`. Version 1 contains:
+
+- `runs`: one row per run with run ID, timestamps, status (`pending`, `running`,
+  `success`, `failed`, `cancelled`), cwd/repo/branch/label, command/prompt metadata,
+  output/result/summary paths, exit code, duration, error message, and `metadata_json`.
+- `run_events`: append-only run lifecycle messages keyed by `run_id`.
+
+The DB enables WAL, `busy_timeout`, and foreign keys on access. Large stdout/stderr or
+collected opencode payloads are not stored in SQLite; only paths and metadata are indexed.

@@ -31,8 +31,7 @@ Run ID: 20260517-143012-a1b2c3
 Output directory: /home/user/.eval-feia/results/runs/20260517-143012-a1b2c3
 ```
 
-Stored results default to `$HOME/.eval-feia/results`. Set `EVAL_FEIA_RESULTS_DIR` to override
-that root.
+Stored results default to `$HOME/.eval-feia/results`. Set `EVAL_FEIA_RESULTS_DIR` to override that root. The SQLite metadata index defaults to `<output-root>/eval-feia.sqlite3`; set `EVAL_FEIA_DB_PATH` to override that database path.
 
 `--command <name>` runs an opencode slash command. The prompt file content is sent to opencode as the command `arguments`. A leading slash is accepted in CLI input, so `--command /bash` sends `"bash"` in the HTTP request body.
 
@@ -52,10 +51,8 @@ The command prints:
 
 - server health/version
 - run ID
-- repository path, base ref/SHA, output directory, worktree root, execution mode, and
-  validation command count
-- progress lines for server preflight, output setup, worktree creation, candidate execution,
-  and summary writing
+- repository path, base ref/SHA, output directory, worktree root, execution mode, and validation command count
+- progress lines for server preflight, output setup, worktree creation, candidate execution, and summary writing
 - generated worktree table with per-candidate index and worktree path
 - run label when provided
 - per-candidate session IDs
@@ -66,6 +63,7 @@ The command writes:
 
 - stored result metadata, output, summary, and logs under `$HOME/.eval-feia/results/runs/<run-id>`
 - append-only `$HOME/.eval-feia/results/index.jsonl`
+- run metadata in the local SQLite index at `<output-root>/eval-feia.sqlite3`, unless `EVAL_FEIA_DB_PATH` overrides the database path
 - manifest
 - per-candidate session metadata
 - messages
@@ -74,8 +72,7 @@ The command writes:
 - opencode diff
 - local git diff
 - validation result
-- result JSON and summary JSON with run-level `label`, `base_ref`, `base_sha`,
-  `branch_name`, `worktree_path`, `session_id`, and status
+- result JSON and summary JSON with run-level `label`, `base_ref`, `base_sha`, `branch_name`, `worktree_path`, `session_id`, and status
 - final summary markdown and JSON
 
 ### Exit codes
@@ -88,11 +85,12 @@ Recommended exit codes:
 - `3`: opencode server preflight failed
 - `4`: git worktree setup failed
 - `5`: cleanup safety check failed
+- `6`: SQLite metadata index inspection failed
 - `130`: interrupted by user
 
 ## Command: `eval-feia list` / `eval-feia ls`
 
-Lists saved run results from the configured run output root. `ls` is an alias for `list` and uses the same handler.
+Lists saved run results. `ls` is an alias for `list` and uses the same handler.
 
 ### Usage
 
@@ -101,26 +99,30 @@ eval-feia list
 eval-feia ls --limit 5
 eval-feia list --output-dir ./custom-runs
 eval-feia list --json
+EVAL_FEIA_DB_PATH=/tmp/eval-feia.sqlite3 eval-feia list --json
+eval-feia ls --status success --branch HEAD
 ```
 
 ### Behavior
 
-- Reads saved run directories under the same output root used by `run`; defaults to `.eval-feia/runs` and accepts `--output-dir` for custom roots.
+- By default, reads saved run directories under the same output root used by `run`; defaults to `.eval-feia/runs` and accepts `--output-dir` for custom roots.
 - Prefers `manifest.json` and `run-summary.json` metadata when present.
 - Falls back to the run directory name, file paths, and modification time for partial or legacy results.
 - Sorts newest modified runs first.
 - Treats a missing output root as an empty list.
 - Does not delete or modify files.
+- When `EVAL_FEIA_DB_PATH` or any SQLite filter is provided, reads recent run metadata from the local SQLite index instead. If the DB is empty and file outputs already exist, list performs a best-effort idempotent backfill from `manifest.json` and `run-summary.json`.
 
 ### Output
 
-Human output includes the run ID, created time, modified time, label when available,
-branch information when available, output directory, and result/metadata file path.
+File-output listing includes the run ID, created time, modified time, label when available, branch information when available, output directory, and result/metadata file path.
 
 ```text
 RUN                      CREATED                    MODIFIED                   LABEL       BRANCH                         OUTPUT                         RESULT
 20260514-123456-a1b2c3   2026-05-14T12:34:56+09:00 2026-05-14T12:40:00+09:00 command run eval/20260514-a1b2/cand-001 /repo/.eval-feia/runs/...     /repo/.eval-feia/runs/.../run-summary.json
 ```
+
+SQLite index listing uses short run ID, status, branch or label, cwd/repo name, started/ended timestamps, duration, and output directory.
 
 When there are no saved runs, the command prints:
 
@@ -133,6 +135,9 @@ No saved runs found.
 ```text
 --limit N           Show only the most recent N saved runs.
 --output-dir PATH   Run output root to inspect.
+--status STATUS     Filter indexed runs by pending/running/success/failed/cancelled.
+--branch BRANCH     Filter indexed runs by branch/base ref.
+--label LABEL       Filter indexed runs by run label.
 --json              Print saved runs as a JSON array.
 ```
 
@@ -144,6 +149,7 @@ Removes generated resources from a previous run.
 
 ```bash
 eval-feia clean .eval-feia/runs/<run-id>/manifest.json
+eval-feia clean .eval-feia/runs/<run-id>/manifest.json --db
 eval-feia clean --results
 ```
 
@@ -156,6 +162,8 @@ eval-feia clean --results
 - Does not stop opencode server.
 - In manifest-cleanup mode, does not remove files outside manifest-recorded generated resources.
 - Does not remove stored results unless `--results` is provided and the results root validates as eval-feia-owned.
+- By default, preserves SQLite records and marks the run output as missing in `metadata_json` after deleting manifest-recorded files.
+- `clean --db` deletes only the default database under the manifest output root; custom `EVAL_FEIA_DB_PATH` databases must be removed manually.
 
 ### Flags
 
@@ -164,6 +172,7 @@ MANIFEST             Required unless --results is used by itself. Manifest file 
 --dry-run            Print planned deletions without deleting.
 --force              Continue after non-critical cleanup errors.
 --results            Remove the stored results root after printing the target path.
+--db                 Also delete the SQLite metadata index database.
 ```
 
 ## Command Group: `eval-feia results`
