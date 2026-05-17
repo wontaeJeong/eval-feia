@@ -20,9 +20,9 @@ Rationale: the synchronous endpoint sends a message and waits for a response. As
 
 ## ADR-004: Minimal command surface
 
-Decision: MVP exposes only `run` and `clean`.
+Decision: MVP exposes `run`, `list`/`ls`, and `clean`.
 
-Rationale: `run` already includes collection and summary. Extra commands increase UX and state-management complexity without adding MVP value.
+Rationale: `run` already includes collection and summary. `list`/`ls` is limited to querying the local SQLite metadata index; other operational commands stay deferred to avoid expanding state-management complexity.
 
 ## ADR-005: Manifest-based cleanup
 
