@@ -1,73 +1,129 @@
-# AGENTS
+# AGENTS.md
 
-> Scope: eval-feia zero-start implementation.
-> Updated: 2026-05-13.
-> Assumption: implementation starts from an empty or near-empty repository.
+## Project identity
 
-## Role
+This repository implements `eval-feia`, a local CLI evaluator for running opencode-based coding experiments across isolated git worktrees.
 
-You are an implementation agent for `eval-feia`.
+The MVP is REST-only. Do not implement execution by shelling out to `opencode run --attach`. The opencode server is assumed to be started externally by the user.
 
-Build the project from zero using the docs in this repository.
+## Architectural rules
 
-## Ground rules
+1. `eval-feia` must not start, restart, dispose, or kill `opencode serve` in the MVP.
+2. `eval-feia` must communicate with opencode over HTTP REST/SSE only.
+3. Every opencode request that is worktree-specific must include the effective directory context.
+4. For POST/PUT/PATCH/DELETE requests, send the directory context as `x-opencode-directory` with the directory URL-encoded exactly once.
+5. For GET/HEAD requests, prefer a `directory` query parameter with the directory URL-encoded exactly once.
+6. Use absolute paths for worktree directories.
+7. Validate returned session directory/path information when available.
+8. Use manifest-based cleanup only.
+9. `run` must perform collection and final summary automatically.
+10. Keep the CLI surface minimal: `run` and `clean` only for MVP.
 
-- Do not assume existing code.
-- Read `PRD.md`, `REQUIREMENTS.md`, and `ARCHITECTURE.md` before coding.
-- Keep the implementation small but complete.
-- Write tests as you implement.
-- Never call a global `opencode` binary directly.
-- Use version-pinned `bunx -p opencode-ai@<version>`.
-- Bind OpenCode to `127.0.0.1`.
-- Use `OPENCODE_SERVER_PASSWORD`.
-- Do not log secrets.
-- Print worktree paths immediately.
-- Print actual served server info.
-- Restart on version/cwd mismatch.
-- Connect SSE before prompt submission.
-- Keep Rich table cells short.
-- Use JSONL for machine-readable mode.
+## Source constraints
 
-## Preferred package layout
+The implementation agent cannot assume web access. The required opencode REST API information is included in `docs/opencode-rest-api.md`. If local opencode is available during implementation, use the running server's `/doc` endpoint to confirm the installed version's OpenAPI spec.
+
+## Preferred implementation stack
+
+Use Python 3.11+ for the MVP.
+
+Recommended packages:
+
+- `typer` for CLI
+- `httpx` for REST and SSE-capable streaming primitives
+- `pydantic` for config and manifest schemas
+- `rich` for readable terminal output
+- `pytest` and `respx` or an in-process mock server for tests
+
+The implementation should remain simple enough that replacing `httpx` or `typer` later is possible.
+
+## Directory layout
+
+Recommended layout:
 
 ```text
-src/eval_feia/
-  __init__.py
-  cli.py
-  models.py
-  orchestrator.py
-  worktree.py
-  process.py
-  opencode_client.py
-  sse.py
-  live.py
-  metrics.py
-  validation.py
-  reports.py
-  cleanup.py
-tests/
+eval-feia/
+  pyproject.toml
+  README.md
+  AGENTS.md
+  src/eval_feia/
+    __init__.py
+    cli.py
+    config.py
+    manifest.py
+    git_worktree.py
+    opencode_client.py
+    runner.py
+    collector.py
+    summary.py
+    clean.py
+    errors.py
+  tests/
+    test_opencode_client.py
+    test_worktree.py
+    test_runner.py
+    test_clean.py
+    fixtures/
 ```
 
-## Commands
+## Coding standards
 
-Run tests with:
+- Keep side effects explicit.
+- Avoid global mutable state.
+- Use typed dataclasses or pydantic models for config, manifest, and run result records.
+- Never log secrets, Authorization headers, provider API keys, or full auth config.
+- Include run IDs and candidate IDs in logs.
+- All filesystem deletion must go through a manifest validation step.
 
-```bash
-uv run pytest
-```
+## REST execution contract
 
-Run a single local batch with:
+For each candidate worktree:
 
-```bash
-uv run eval-feia run --repo . --count 1 --concurrency 1 --opencode-version 1.4.6 --json
-```
+1. Preflight effective path:
+   - `GET /path?directory=<encoded-worktree>`
+   - `GET /project/current?directory=<encoded-worktree>` when available
+2. Create session:
+   - `POST /session`
+   - header: `x-opencode-directory: <encoded-worktree>`
+   - body: `{ "title": "eval-feia/<run-id>/<candidate-id>" }`
+3. Send prompt:
+   - `POST /session/{id}/message`
+   - header: `x-opencode-directory: <encoded-worktree>`
+   - body includes `parts: [{ "type": "text", "text": <prompt> }]`
+4. Collect:
+   - `GET /session/{id}?directory=<encoded-worktree>`
+   - `GET /session/{id}/message?directory=<encoded-worktree>`
+   - `GET /session/{id}/children?directory=<encoded-worktree>` recursively
+   - `GET /session/{id}/todo?directory=<encoded-worktree>`
+   - `GET /session/{id}/diff?directory=<encoded-worktree>`
+   - `GET /file/status?directory=<encoded-worktree>`
+5. Validate locally:
+   - run configured validation commands in the worktree
+   - capture stdout/stderr/exit code
+6. Write result files.
 
-## Completion report
+## Testing expectations
 
-When done, report:
+Tests must cover:
 
-- changed files
-- implemented commands/options
-- tests added
-- test results
-- known limitations
+- URL encoding of directory context.
+- GET query vs non-GET header behavior.
+- Health preflight retry behavior.
+- Session creation and prompt send request shapes.
+- Timeout and abort behavior.
+- Child session discovery.
+- Manifest creation and cleanup safety.
+- Final summary generation.
+
+## Do not implement
+
+Do not add these MVP commands unless explicitly requested later:
+
+- `serve`
+- `attach`
+- `collect`
+- `summary`
+- `report`
+- `status`
+
+Their behavior is already covered by `run` or intentionally out of scope.

@@ -1,40 +1,36 @@
-# eval-feia Documentation Pack
+# eval-feia Zero-Base Design Pack
 
-> Scope: eval-feia zero-start implementation.
-> Updated: 2026-05-13.
-> Assumption: implementation starts from an empty or near-empty repository.
+Date: 2026-05-14
 
-This documentation pack describes the zero-start implementation plan for `eval-feia`.
+This pack defines the MVP for `eval-feia`: a REST-only evaluator for opencode worktree experiments.
 
-`eval-feia` is an OpenCode Agent Evaluation Harness. It runs the same task through OpenCode server instances, captures each agent trajectory, validates the produced AutoGen Teams JSON Component Config, and writes structured metrics for comparison.
+The key decision is simple:
 
-The current target task is:
+- `eval-feia` does not start or own `opencode serve`.
+- The user starts `opencode serve` separately.
+- `eval-feia run` creates worktrees, then calls the already-running opencode HTTP server with each worktree as the effective directory context.
+- `eval-feia run` waits for execution, collects messages, diffs, status, artifacts, and local validation output, then prints and writes the final result summary automatically.
+- `eval-feia clean` removes only files and git worktrees recorded in the manifest.
 
-> 웹 검색 후 Knox 메일 리포트 에이전트 작성
+The MVP command surface is intentionally small:
 
-The package includes requirements, architecture, OpenCode API notes, runtime readiness checks, live execution UX, data schemas, validation, security, test planning, and implementation tasks.
+```bash
+eval-feia run --config eval-feia.yaml
 
-## Required reading order
+eval-feia clean --manifest .eval-feia/runs/<run-id>/manifest.json
+```
 
-1. `PROJECT_CONTEXT.md`
-2. `PRD.md`
-3. `REQUIREMENTS.md`
-4. `ARCHITECTURE.md`
-5. `OPENCODE_API_REFERENCE.md`
-6. `OPENCODE_INTEGRATION.md`
-7. `WORKTREE_SPEC.md`
-8. `RUNTIME_READINESS_SPEC.md`
-9. `LIVE_EXECUTION_UX_SPEC.md`
-10. `SERVER_INFO_RESTART_SPEC.md`
-11. `TRAJECTORY_METRICS.md`
-12. `DATA_SCHEMA.md`
-13. `VALIDATION_SPEC.md`
-14. `CLI_SPEC.md`
-15. `TEST_PLAN.md`
-16. `IMPLEMENTATION_PLAN.md`
-17. `TASK_BREAKDOWN.md`
-18. `AGENTS.md`
+The detailed REST reference is in `docs/opencode-rest-api.md`. The implementation plan is in `docs/implementation-plan.md`. The CLI contract is in `docs/cli.md`.
 
-## Separate prompt pack
+## Source basis
 
-The actual agent work prompts are packaged separately in `eval-feia-zero-start-prompts.zip`. Use the master prompt first if one agent will implement the project end-to-end. Use the phase prompts if you want to split the work into smaller jobs.
+This design is based on the opencode server and SDK documentation and the generated SDK/client source available from the opencode project.
+
+Primary source URLs:
+
+- https://opencode.ai/docs/server/
+- https://opencode.ai/docs/sdk/
+- https://raw.githubusercontent.com/anomalyco/opencode/dev/packages/sdk/js/src/client.ts
+- https://raw.githubusercontent.com/anomalyco/opencode/dev/packages/sdk/js/src/gen/sdk.gen.ts
+
+Because opencode publishes a live OpenAPI 3.1 spec from the running server, the implementation must also support `GET http://<host>:<port>/doc` as the local runtime source of truth for the installed opencode version.
