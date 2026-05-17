@@ -13,6 +13,13 @@
 GET /global/health
 ```
 
+`run` first creates a stored result directory and prints it:
+
+```text
+Run ID: <run-id>
+Output directory: /home/user/.eval-feia/results/runs/<run-id>
+```
+
 7. Print health and run context:
 
 ```text

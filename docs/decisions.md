@@ -20,15 +20,15 @@ Rationale: the synchronous endpoint sends a message and waits for a response. As
 
 ## ADR-004: Minimal command surface
 
-Decision: MVP exposes `run`, read-only `list` / `ls`, and `clean`.
+Decision: MVP exposes `run`, read-only `list` / `ls`, `clean`, and read-only `results` inspection commands.
 
-Rationale: `run` already includes execution, collection, and summary. `list` is read-only and only discovers saved run artifacts so users can inspect past results and choose a manifest for `clean` without adding execution state management.
+Rationale: `run` already includes execution, collection, and summary. `list` / `ls` discover saved run artifacts so users can inspect past generated outputs and choose a manifest for `clean`; `results` reads the durable local file-backed history without contacting opencode.
 
 ## ADR-005: Manifest-based cleanup
 
-Decision: `clean` removes only resources recorded in the manifest.
+Decision: default `clean` removes only generated resources recorded in the manifest; stored result history cleanup is a separate explicit `clean --results` action against a validated eval-feia results root.
 
-Rationale: worktree cleanup is destructive. Manifest-based cleanup prevents accidental deletion of unrelated files or server processes.
+Rationale: worktree cleanup is destructive. Manifest-based cleanup prevents accidental deletion of unrelated files or server processes, while stored result history has a separate ownership marker and explicit cleanup path.
 
 ## ADR-006: Directory context must be explicit per request
 

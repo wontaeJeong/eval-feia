@@ -37,7 +37,7 @@ The CLI attach mode is useful for humans but hides several behaviors that an eva
 
 ### CLI
 
-Parses direct arguments and calls the runner. Exposes `run`, read-only `list` / `ls`, and `clean`.
+Parses direct arguments and calls the runner. Exposes `run`, read-only `list` / `ls`, `clean`, and the read-only `results` inspection group.
 
 ### Runtime model builder
 
@@ -170,7 +170,8 @@ Candidate failure classes:
 
 The tool must be conservative with destructive actions:
 
-- never delete a path not listed in the manifest
+- never delete a generated worktree or run artifact path not listed in the manifest
+- never delete stored result history unless `clean --results` is explicitly used and the target is a validated eval-feia results root
 - never delete the repository root
 - never delete outside the configured workspace/output root unless the manifest explicitly says it is a generated git worktree
 - never kill `opencode serve`
