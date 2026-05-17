@@ -1,34 +1,25 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .errors import ErrorRecord
 from .manifest import write_json
 from .opencode_client import OpencodeClient
+from .records import JsonObject, JsonValue
 
 
+@dataclass(slots=True)
 class CollectionResult:
-    def __init__(
-        self,
-        *,
-        session: Any = None,
-        messages: Any = None,
-        children: Any = None,
-        todo: Any = None,
-        diff: Any = None,
-        file_status: Any = None,
-        final_output: str = "",
-        errors: list[ErrorRecord] | None = None,
-    ) -> None:
-        self.session = session
-        self.messages = messages
-        self.children = children
-        self.todo = todo
-        self.diff = diff
-        self.file_status = file_status
-        self.final_output = final_output
-        self.errors = errors or []
+    session: JsonValue = None
+    messages: JsonValue = None
+    children: JsonValue = None
+    todo: JsonValue = None
+    diff: JsonValue = None
+    file_status: JsonValue = None
+    final_output: str = ""
+    errors: list[ErrorRecord] = field(default_factory=list)
 
 
 def collect_candidate(
@@ -67,11 +58,11 @@ def collect_candidate(
     )
 
 
-def collect_children_recursive(client: OpencodeClient, cwd: Path, session_id: str) -> list[dict[str, Any]]:
+def collect_children_recursive(client: OpencodeClient, cwd: Path, session_id: str) -> list[JsonObject]:
     children = client.session_children(cwd, session_id)
-    records: list[dict[str, Any]] = []
+    records: list[JsonObject] = []
     for child_id in _extract_child_ids(children):
-        record: dict[str, Any] = {"id": child_id}
+        record: JsonObject = {"id": child_id}
         record["session"] = client.session_get(cwd, child_id)
         record["messages"] = client.session_messages(cwd, child_id)
         record["diff"] = client.session_diff(cwd, child_id)
@@ -92,7 +83,7 @@ def extract_final_output(messages: Any) -> str:
     return ""
 
 
-def _safe_call(errors: list[ErrorRecord], label: str, func: Any) -> Any:
+def _safe_call(errors: list[ErrorRecord], label: str, func: Callable[[], JsonValue]) -> JsonValue:
     try:
         return func()
     except Exception as exc:  # collection is intentionally best-effort
@@ -117,7 +108,7 @@ def _extract_child_ids(children: Any) -> list[str]:
     return ids
 
 
-def _messages_list(value: Any) -> list[dict[str, Any]]:
+def _messages_list(value: Any) -> list[JsonObject]:
     if isinstance(value, list):
         return [item for item in value if isinstance(item, dict)]
     if isinstance(value, dict):
