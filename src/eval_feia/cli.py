@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import os
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -21,6 +23,15 @@ from .results_store import (
     start_run_record,
 )
 from .runner import generate_run_id, run_evaluation
+from .storage import (
+    DB_ENV_VAR,
+    VALID_STATUSES,
+    backfill_from_output_dir,
+    count_runs,
+    default_db_path,
+    format_storage_error,
+    list_runs as list_indexed_runs,
+)
 from .summary import render_markdown_summary
 
 
@@ -79,7 +90,16 @@ def run(
             help="Run an opencode slash command; the prompt is sent as command arguments.",
         ),
     ] = None,
-    output_dir: Annotated[Path | None, typer.Option("--output-dir", help="Run output root.")] = None,
+    output_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--output-dir",
+            help=(
+                "Run output root. SQLite index defaults to this directory/"
+                f"eval-feia.sqlite3 unless {DB_ENV_VAR} is set."
+            ),
+        ),
+    ] = None,
 ) -> None:
     """Create worktrees, execute opencode sessions, collect results, and summarize."""
     run_id = generate_run_id()
@@ -191,6 +211,9 @@ def _list_runs_command(
         Path | None,
         typer.Option("--output-dir", help="Run output root to inspect."),
     ] = None,
+    status: Annotated[str | None, typer.Option("--status", help="Filter by indexed run status.")] = None,
+    branch: Annotated[str | None, typer.Option("--branch", help="Filter by indexed branch/base ref.")] = None,
+    label: Annotated[str | None, typer.Option("--label", help="Filter by indexed run label.")] = None,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Print saved runs as a JSON array."),
@@ -200,6 +223,16 @@ def _list_runs_command(
     if limit is not None and limit < 1:
         console.print("--limit must be greater than zero", style="red")
         raise typer.Exit(2)
+    if _sqlite_list_requested(status=status, branch=branch, label=label):
+        _list_indexed_runs(
+            limit=limit or 20,
+            output_dir=output_dir,
+            status=status,
+            branch=branch,
+            label=label,
+            json_output=json_output,
+        )
+        raise typer.Exit(0)
 
     runs = list_saved_runs(output_root=output_dir, limit=limit)
     if json_output:
@@ -207,6 +240,79 @@ def _list_runs_command(
         raise typer.Exit(0)
     print_saved_runs(console, runs)
     raise typer.Exit(0)
+
+
+def _sqlite_list_requested(*, status: str | None, branch: str | None, label: str | None) -> bool:
+    return bool(os.environ.get(DB_ENV_VAR) or status is not None or branch is not None or label is not None)
+
+
+def _list_indexed_runs(
+    *,
+    limit: int,
+    output_dir: Path | None,
+    status: str | None,
+    branch: str | None,
+    label: str | None,
+    json_output: bool,
+) -> None:
+    if status is not None and status not in VALID_STATUSES:
+        console.print(
+            "invalid --status; expected one of " + ", ".join(sorted(VALID_STATUSES)),
+            style="red",
+        )
+        raise typer.Exit(2)
+    output_root = (output_dir or Path(".eval-feia/runs")).expanduser().resolve(strict=False)
+    db_path = default_db_path(output_root)
+    try:
+        if count_runs(db_path) == 0:
+            backfill_from_output_dir(db_path, output_root)
+        rows = list_indexed_runs(db_path, limit=limit, status=status, branch=branch, label=label)
+    except Exception as exc:
+        console.print(format_storage_error(exc, db_path), style="red")
+        raise typer.Exit(6) from exc
+
+    if json_output:
+        console.print(json.dumps(rows, ensure_ascii=False, sort_keys=True), markup=False, soft_wrap=True)
+        return
+    print_plain_table(
+        console,
+        ("ID", "STATUS", "BRANCH/LABEL", "CWD", "STARTED", "ENDED", "DURATION", "OUTPUT"),
+        [_indexed_run_row(row) for row in rows],
+    )
+
+
+def _indexed_run_row(row: dict[str, object]) -> tuple[str, ...]:
+    branch_or_label = str(row.get("label") or row.get("branch") or "")
+    return (
+        str(row.get("id") or "")[:12],
+        str(row.get("status") or ""),
+        branch_or_label,
+        _display_cwd(row),
+        str(row.get("started_at") or ""),
+        str(row.get("ended_at") or ""),
+        _format_duration(row.get("duration_ms")),
+        str(row.get("output_dir") or ""),
+    )
+
+
+def _display_cwd(row: dict[str, object]) -> str:
+    value = row.get("cwd") or row.get("repo_root")
+    if not value:
+        return ""
+    path = Path(str(value))
+    return path.name or str(path)
+
+
+def _format_duration(value: object) -> str:
+    if value is None:
+        return ""
+    try:
+        duration_ms = int(value) if isinstance(value, int | str) else int(str(value))
+    except (TypeError, ValueError):
+        return ""
+    if duration_ms < 1000:
+        return f"{duration_ms}ms"
+    return f"{duration_ms / 1000:.1f}s"
 
 
 app.command("list")(_list_runs_command)
@@ -426,6 +532,13 @@ def clean(
         bool,
         typer.Option("--results", help="Also remove stored results under the configured results root."),
     ] = False,
+    db: Annotated[
+        bool,
+        typer.Option(
+            "--db",
+            help=f"Also delete the SQLite metadata index database ({DB_ENV_VAR} overrides path).",
+        ),
+    ] = False,
 ) -> None:
     """Remove only manifest-recorded worktrees and run artifacts."""
     if manifest is None and not results:
@@ -435,7 +548,7 @@ def clean(
     cleanup_results = []
     try:
         if manifest is not None:
-            cleanup_results.append(clean_resources(manifest, dry_run=dry_run, force=force))
+            cleanup_results.append(clean_resources(manifest, dry_run=dry_run, force=force, remove_db=db))
         if results:
             cleanup_results.append(clean_results(dry_run=dry_run))
     except CleanupSafetyError as exc:
@@ -450,6 +563,8 @@ def clean(
         for action in result.actions:
             prefix = "would remove" if dry_run else "removed"
             console.print(f"{prefix} {action.kind}: {action.path}", soft_wrap=True)
+        for warning in result.warnings:
+            console.print(f"warning: {warning}", style="yellow")
         errors.extend(result.errors)
     if errors:
         for error in errors:

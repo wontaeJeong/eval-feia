@@ -16,6 +16,7 @@ from eval_feia.manifest import (
     write_manifest,
 )
 from eval_feia.results_store import complete_run_record, run_directory, start_run_record
+from eval_feia.storage import create_run
 
 
 def test_run_help_lists_command_option() -> None:
@@ -28,6 +29,7 @@ def test_run_help_lists_command_option() -> None:
     assert "--branch" in result.output
     assert "--attempts" in result.output
     assert "--repo" in result.output
+    assert "EVAL_FEIA_DB_PATH" in result.output
     assert "--config" not in result.output
     assert "--base-ref" not in result.output
     assert "--worktrees" not in result.output
@@ -121,7 +123,38 @@ def test_clean_manifest_is_positional_argument() -> None:
     assert result.exit_code == 0
     assert "MANIFEST" in result.output
     assert "--results" in result.output
+    assert "--db" in result.output
     assert "--manifest" not in result.output
+
+
+def test_list_help_includes_index_filters() -> None:
+    result = CliRunner().invoke(app, ["list", "--help"], color=False)
+
+    assert result.exit_code == 0
+    assert "--limit" in result.output
+    assert "--status" in result.output
+    assert "--branch" in result.output
+    assert "--label" in result.output
+    assert "--json" in result.output
+
+
+def test_list_json_reads_sqlite_index_when_configured(monkeypatch, tmp_path: Path) -> None:
+    db_path = tmp_path / "eval-feia.sqlite3"
+    monkeypatch.setenv("EVAL_FEIA_DB_PATH", str(db_path))
+    create_run(
+        db_path,
+        run_id="json-run",
+        status="success",
+        branch="main",
+        output_dir=tmp_path / "runs" / "json-run",
+    )
+
+    result = CliRunner().invoke(app, ["list", "--json"], color=False)
+
+    assert result.exit_code == 0
+    rows = json.loads(result.output)
+    assert rows[0]["id"] == "json-run"
+    assert rows[0]["status"] == "success"
 
 
 def test_results_commands_list_show_path_and_cat(monkeypatch, tmp_path: Path) -> None:
