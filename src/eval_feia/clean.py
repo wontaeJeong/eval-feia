@@ -7,7 +7,12 @@ from pathlib import Path
 from .errors import CleanupSafetyError
 from .git_worktree import GitWorktreeManager
 from .manifest import Manifest, load_manifest
-from .results_store import RESULTS_MARKER, RESULTS_MARKER_TEXT, configured_results_root
+from .results_store import (
+    RESULTS_MARKER,
+    RESULTS_MARKER_TEXT,
+    RESULTS_OWNED_ENTRIES,
+    configured_results_root,
+)
 from .storage import (
     DB_ENV_VAR,
     db_path_for_output_root,
@@ -16,6 +21,10 @@ from .storage import (
     format_storage_error,
     mark_output_missing,
 )
+
+
+GENERATED_MARKER = ".eval-feia-generated"
+GENERATED_MARKER_TEXT = "eval-feia generated root\n"
 
 
 @dataclass(slots=True)
@@ -159,12 +168,33 @@ def _validate_manifest_roots(manifest: Manifest, manifest_path: Path | None) -> 
         worktree_root, output_dir
     ):
         raise CleanupSafetyError("manifest output and worktree roots must not overlap")
+    if output_dir.exists():
+        _validate_generated_root_marker(output_dir)
+    if worktree_root.exists():
+        _validate_generated_root_marker(worktree_root)
     if manifest_path is not None:
         _validate_no_symlink_components(manifest_path)
         expected_manifest = (output_dir / "manifest.json").resolve(strict=False)
         actual_manifest = manifest_path.expanduser().resolve(strict=False)
         if actual_manifest != expected_manifest:
             raise CleanupSafetyError("manifest file must be located at output_dir/manifest.json")
+
+
+def write_generated_marker(root: Path) -> None:
+    root.mkdir(parents=True, exist_ok=True)
+    (root / GENERATED_MARKER).write_text(GENERATED_MARKER_TEXT, encoding="utf-8")
+
+
+def _validate_generated_root_marker(root: Path) -> None:
+    marker = root / GENERATED_MARKER
+    if marker.is_symlink() or not marker.is_file():
+        raise CleanupSafetyError(f"generated root is missing eval-feia marker: {root}")
+    try:
+        marker_text = marker.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise CleanupSafetyError(f"failed to read generated root marker: {marker}") from exc
+    if marker_text != GENERATED_MARKER_TEXT:
+        raise CleanupSafetyError(f"generated root marker is invalid: {marker}")
 
 
 def _safe_resolved_path(path: Path, repo_path: Path) -> Path:
@@ -208,10 +238,16 @@ def _validate_results_root(root: Path) -> None:
         raise CleanupSafetyError(f"failed to read results marker: {marker}") from exc
     if marker_text != RESULTS_MARKER_TEXT:
         raise CleanupSafetyError(f"results root marker is invalid: {marker}")
+    unexpected = sorted(path.name for path in root.iterdir() if path.name not in RESULTS_OWNED_ENTRIES)
+    if unexpected:
+        raise CleanupSafetyError("results root contains unexpected entries: " + ", ".join(unexpected))
+    index_path = root / "index.jsonl"
+    if index_path.exists() and (index_path.is_symlink() or not index_path.is_file()):
+        raise CleanupSafetyError(f"results index is not a regular file: {index_path}")
     runs_root = root / "runs"
-    if runs_root.exists() and runs_root.is_symlink():
-        raise CleanupSafetyError(f"refusing to delete symlink path: {runs_root}")
-    has_index = (root / "index.jsonl").exists()
+    if runs_root.exists() and (runs_root.is_symlink() or not runs_root.is_dir()):
+        raise CleanupSafetyError(f"results runs path is not a directory: {runs_root}")
+    has_index = index_path.exists()
     has_runs = runs_root.exists()
     is_empty = not any(path.name != RESULTS_MARKER for path in root.iterdir())
     if not (has_index or has_runs or is_empty):

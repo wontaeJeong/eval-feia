@@ -12,6 +12,7 @@ RESULTS_DIR_ENV = "EVAL_FEIA_RESULTS_DIR"
 DEFAULT_RESULT_FILE = "output.txt"
 RESULTS_MARKER = ".eval-feia-results"
 RESULTS_MARKER_TEXT = "eval-feia results\n"
+RESULTS_OWNED_ENTRIES = frozenset({RESULTS_MARKER, "index.jsonl", "runs"})
 
 
 def configured_results_root(root: Path | None = None) -> Path:
@@ -179,11 +180,36 @@ def _append_index(metadata: dict[str, Any], *, root: Path | None = None) -> None
 
 def _ensure_results_root(root: Path | None = None) -> Path:
     resolved_root = resolve_results_root(root)
-    resolved_root.mkdir(parents=True, exist_ok=True)
+    if resolved_root.exists():
+        _validate_results_root_for_write(resolved_root)
+    else:
+        resolved_root.mkdir(parents=True)
     marker = resolved_root / RESULTS_MARKER
     if not marker.exists():
         marker.write_text(RESULTS_MARKER_TEXT, encoding="utf-8")
     return resolved_root
+
+
+def _validate_results_root_for_write(root: Path) -> None:
+    if not root.is_dir():
+        raise ValueError(f"results root is not a directory: {root}")
+    marker = root / RESULTS_MARKER
+    entries = list(root.iterdir())
+    if not marker.exists():
+        if entries:
+            raise ValueError(f"refusing to initialize non-empty results root: {root}")
+        return
+    if not marker.is_file() or marker.read_text(encoding="utf-8") != RESULTS_MARKER_TEXT:
+        raise ValueError(f"results root marker is invalid: {marker}")
+    unexpected = sorted(path.name for path in entries if path.name not in RESULTS_OWNED_ENTRIES)
+    if unexpected:
+        raise ValueError("results root contains unexpected entries: " + ", ".join(unexpected))
+    index_path = root / "index.jsonl"
+    if index_path.exists() and (index_path.is_symlink() or not index_path.is_file()):
+        raise ValueError(f"results index is not a regular file: {index_path}")
+    runs_root = root / "runs"
+    if runs_root.exists() and (runs_root.is_symlink() or not runs_root.is_dir()):
+        raise ValueError(f"results runs path is not a directory: {runs_root}")
 
 
 def _read_index_records(root: Path) -> list[dict[str, Any]] | None:

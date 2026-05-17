@@ -14,6 +14,7 @@ from urllib.parse import unquote
 import httpx
 from rich.console import Console
 
+from .clean import write_generated_marker
 from .collector import collect_candidate
 from .config import EvalConfig, EvalItemConfig, read_prompt
 from .errors import ConfigError, ErrorRecord, EvalFeiaError, GitError, HealthError
@@ -143,6 +144,8 @@ def run_evaluation(
         _print_progress(active_console, "preparing output directories")
         worktree_root = (config.repo.worktree_root / actual_run_id).resolve(strict=False)
         output_dir.mkdir(parents=True, exist_ok=False)
+        write_generated_marker(output_dir)
+        write_generated_marker(worktree_root)
         (output_dir / "candidates").mkdir(parents=True, exist_ok=True)
 
         _print_run_context(
@@ -451,9 +454,10 @@ def _safe_create_run_record(
             branch=config.repo.base_ref,
             label=_non_empty(config.run.label),
             command=normalize_command(config.run.command),
-            prompt=config.run.prompt,
+            prompt=None,
             output_dir=output_dir,
             metadata={
+                "has_inline_prompt": config.run.prompt is not None,
                 "prompt_file": str(config.run.prompt_file) if config.run.prompt_file else None,
                 "candidate_count": config.run.candidates,
                 "server_url": config.server.url,
