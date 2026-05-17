@@ -18,7 +18,7 @@ The MVP CLI is arguments-only. It does not load YAML, JSON, or TOML config files
 
 ## Internal Model
 
-The code still uses typed Pydantic models for server, repo, run, validation, summary, and manifest data. Programmatic callers and tests may construct `EvalConfig` directly, but the CLI surface stays minimal: `run` and `clean` only, with direct flags only.
+The code still uses typed Pydantic models for server, repo, run, validation, summary, and manifest data. Programmatic callers and tests may construct `EvalConfig` directly, but the CLI surface stays minimal: `run`, `list`/`ls`, and `clean`, with direct flags only.
 
 Server health preflight defaults to 10 attempts, 500ms between attempts, and a dedicated 2s timeout per `GET /global/health` request.
 

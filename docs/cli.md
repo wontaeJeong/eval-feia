@@ -65,6 +65,8 @@ The command writes:
 - result JSON and summary JSON with run-level `label`, `base_ref`, `base_sha`,
   `branch_name`, `worktree_path`, `session_id`, and status
 - final summary markdown and JSON
+- run metadata in the local SQLite index at `<output-root>/eval-feia.sqlite3`, unless
+  `EVAL_FEIA_DB_PATH` overrides the database path
 
 ### Exit codes
 
@@ -103,7 +105,40 @@ eval-feia clean .eval-feia/runs/<run-id>/manifest.json
 MANIFEST             Required. Manifest file to clean.
 --dry-run            Print planned deletions without deleting.
 --force              Continue after non-critical cleanup errors.
+--db                 Also delete the SQLite metadata index database.
 ```
+
+By default, clean preserves SQLite records and marks the run output as missing in
+`metadata_json` after deleting manifest-recorded files. `clean --db` deletes only the
+default database under the manifest output root; custom `EVAL_FEIA_DB_PATH` databases
+must be removed manually.
+
+## Command: `eval-feia list` / `eval-feia ls`
+
+Lists recent run metadata from the local SQLite index. If the DB does not exist, it is
+created lazily. If the DB is empty and file outputs already exist under `.eval-feia/runs`,
+list performs a best-effort idempotent backfill from `manifest.json` and `run-summary.json`.
+
+### Usage
+
+```bash
+eval-feia list --limit 10
+eval-feia ls --status success --branch HEAD
+EVAL_FEIA_DB_PATH=/tmp/eval-feia.sqlite3 eval-feia list --json
+```
+
+### Flags
+
+```text
+--limit N           Maximum number of runs to show.
+--status STATUS     Filter by pending/running/success/failed/cancelled.
+--branch BRANCH     Filter by branch/base ref.
+--label LABEL       Filter by run label.
+--json              Print a JSON array instead of the table.
+```
+
+Default table columns are short run ID, status, branch or label, cwd/repo name,
+started/ended timestamps, duration, and output directory.
 
 ## Removed or deferred commands
 
