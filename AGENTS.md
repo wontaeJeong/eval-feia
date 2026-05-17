@@ -75,6 +75,14 @@ eval-feia/
 - Include run IDs and candidate IDs in logs.
 - All filesystem deletion must go through a manifest validation step.
 
+## Git history
+
+- Keep branch history linear whenever possible.
+- Prefer fast-forward, rebase, or cherry-pick workflows over merge commits.
+- Do not create merge commits unless the user explicitly requests one or preserving a non-linear history is necessary.
+- If local branch history contains avoidable merge commits, rewrite it into a linear sequence before handoff while preserving atomic commits.
+- Do not rewrite published history without explicit approval; use `--force-with-lease` if a linear-history rewrite must be pushed.
+
 ## REST execution contract
 
 For each candidate worktree:
