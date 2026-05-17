@@ -18,7 +18,6 @@ from .results_store import (
     list_run_metadata,
     load_metadata,
     read_result_file,
-    result_file_path,
     run_directory,
     start_run_record,
 )
@@ -37,10 +36,11 @@ from .summary import render_markdown_summary
 
 
 app = typer.Typer(add_completion=False, help="REST-only opencode worktree evaluator.")
+results_app = typer.Typer(add_completion=False, help="Inspect stored run results.")
 console = Console()
 
 
-@app.command("run-eval")
+@app.command("run")
 def run_eval(
     prompt: Annotated[
         str | None,
@@ -314,7 +314,7 @@ def _format_duration(value: object) -> str:
     return f"{duration_ms / 1000:.1f}s"
 
 
-app.command("list-run-artifacts")(_list_run_artifacts_command)
+app.command("list")(_list_run_artifacts_command)
 
 
 def _finish_completed_cli_run(
@@ -425,7 +425,7 @@ def _copy_text_artifacts(run_id: str, artifacts_dir: Path) -> None:
             (stored_dir / name).write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
 
 
-@app.command("list-stored-results")
+@results_app.command("list")
 def list_stored_results() -> None:
     """List stored run results, newest first."""
     rows = [
@@ -447,7 +447,7 @@ def list_stored_results() -> None:
     )
 
 
-@app.command("show-stored-result")
+@results_app.command("show")
 def show_stored_result(run_id: Annotated[str, typer.Argument(help="Run ID to show.")]) -> None:
     """Show metadata and a short summary for one stored run."""
     try:
@@ -473,7 +473,7 @@ def show_stored_result(run_id: Annotated[str, typer.Argument(help="Run ID to sho
     console.print(summary, markup=False)
 
 
-@app.command("print-stored-result-path")
+@results_app.command("path")
 def print_stored_result_path(run_id: Annotated[str, typer.Argument(help="Run ID to locate.")]) -> None:
     """Print only the stored run output directory."""
     try:
@@ -487,7 +487,7 @@ def print_stored_result_path(run_id: Annotated[str, typer.Argument(help="Run ID 
     )
 
 
-@app.command("print-stored-result-file")
+@results_app.command("file")
 def print_stored_result_file(
     run_id: Annotated[str, typer.Argument(help="Run ID to read from.")],
     file: Annotated[
@@ -505,10 +505,9 @@ def print_stored_result_file(
 
 def _result_summary_preview(run_id: str, *, limit: int = 4000) -> str:
     try:
-        path = result_file_path(run_id, "summary.txt")
-    except Exception:
-        path = result_file_path(run_id, "output.txt")
-    text = path.read_text(encoding="utf-8")
+        text = read_result_file(run_id, "summary.txt")
+    except FileNotFoundError:
+        text = read_result_file(run_id, "output.txt")
     if len(text) <= limit:
         return text
     return text[:limit].rstrip() + "\n..."
@@ -519,12 +518,16 @@ def _raise_results_error(exc: Exception) -> None:
     raise typer.Exit(1) from exc
 
 
-@app.command("clean-run-artifacts")
-def clean_run_artifacts(
+@app.command("clean")
+def clean(
     manifest: Annotated[
-        Path,
+        Path | None,
         typer.Argument(help="Manifest file for generated run artifacts.", metavar="MANIFEST"),
-    ],
+    ] = None,
+    results: Annotated[
+        bool,
+        typer.Option("--results", help="Remove the configured stored-results history root."),
+    ] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Print planned deletions only.")] = False,
     force: Annotated[bool, typer.Option("--force", help="Continue after non-critical errors.")] = False,
     delete_index: Annotated[
@@ -535,7 +538,21 @@ def clean_run_artifacts(
         ),
     ] = False,
 ) -> None:
-    """Remove manifest-recorded generated worktrees and run artifacts."""
+    """Remove generated run artifacts, or stored results with --results."""
+    if results:
+        if manifest is not None:
+            console.print("MANIFEST cannot be used with --results", style="red")
+            raise typer.Exit(2)
+        if force or delete_index:
+            console.print("--force and --delete-index apply only to manifest cleanup", style="red")
+            raise typer.Exit(2)
+        _clean_stored_results(dry_run=dry_run)
+        return
+
+    if manifest is None:
+        console.print("MANIFEST is required unless --results is set", style="red")
+        raise typer.Exit(2)
+
     try:
         cleanup_result = clean_resources(
             manifest,
@@ -552,11 +569,7 @@ def clean_run_artifacts(
     _print_cleanup_result(cleanup_result, dry_run=dry_run)
 
 
-@app.command("clean-stored-results")
-def clean_stored_results(
-    dry_run: Annotated[bool, typer.Option("--dry-run", help="Print planned deletions only.")] = False,
-) -> None:
-    """Remove the configured stored-results history root."""
+def _clean_stored_results(*, dry_run: bool) -> None:
     try:
         cleanup_result = clean_results(dry_run=dry_run)
     except CleanupSafetyError as exc:
@@ -566,6 +579,9 @@ def clean_stored_results(
         console.print(f"cleanup failed: {exc}", style="red")
         raise typer.Exit(5) from exc
     _print_cleanup_result(cleanup_result, dry_run=dry_run)
+
+
+app.add_typer(results_app, name="results")
 
 
 def _print_cleanup_result(cleanup_result: CleanupResult, *, dry_run: bool) -> None:

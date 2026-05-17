@@ -83,6 +83,23 @@ def test_create_update_and_list_run(tmp_path: Path) -> None:
     assert rows[0]["summary_path"] == str((output_dir / "run-summary.json").resolve(strict=False))
 
 
+def test_create_run_normalizes_string_path_fields(monkeypatch, tmp_path: Path) -> None:
+    db_path = tmp_path / "eval-feia.sqlite3"
+    monkeypatch.chdir(tmp_path)
+
+    create_run(
+        db_path,
+        run_id="run-1",
+        cwd=".",
+        output_dir="runs/run-1",
+    )
+
+    rows = list_runs(db_path)
+
+    assert rows[0]["cwd"] == str(tmp_path.resolve(strict=False))
+    assert rows[0]["output_dir"] == str((tmp_path / "runs" / "run-1").resolve(strict=False))
+
+
 def test_list_runs_orders_latest_first_and_filters(tmp_path: Path) -> None:
     db_path = tmp_path / "eval-feia.sqlite3"
     create_run(
@@ -170,7 +187,7 @@ def test_cli_list_json_outputs_valid_json(monkeypatch, tmp_path: Path) -> None:
         output_dir=tmp_path / "runs" / "json-run",
     )
 
-    result = CliRunner().invoke(app, ["list-run-artifacts", "--json"], color=False)
+    result = CliRunner().invoke(app, ["list", "--json"], color=False)
 
     assert result.exit_code == 0
     rows = json.loads(result.output)

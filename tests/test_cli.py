@@ -19,27 +19,19 @@ from eval_feia.results_store import complete_run_record, run_directory, start_ru
 from eval_feia.storage import create_run
 
 
-def test_top_level_help_uses_explicit_command_names() -> None:
+def test_top_level_help_uses_compact_command_names() -> None:
     result = CliRunner().invoke(app, ["--help"], color=False)
 
     assert result.exit_code == 0
-    for command in (
-        "run-eval",
-        "list-run-artifacts",
-        "list-stored-results",
-        "show-stored-result",
-        "print-stored-result-path",
-        "print-stored-result-file",
-        "clean-run-artifacts",
-        "clean-stored-results",
-    ):
+    for command in ("run", "list", "results", "clean"):
         assert command in result.output
-    assert " results " not in result.output
     assert " ls " not in result.output
+    assert "run-eval" not in result.output
+    assert "list-run-artifacts" not in result.output
 
 
-def test_run_eval_help_lists_command_option() -> None:
-    result = CliRunner().invoke(app, ["run-eval", "--help"], color=False)
+def test_run_help_lists_command_option() -> None:
+    result = CliRunner().invoke(app, ["run", "--help"], color=False)
 
     assert result.exit_code == 0
     assert "--command" in result.output
@@ -57,7 +49,7 @@ def test_run_eval_help_lists_command_option() -> None:
     assert "HEAD" in result.output
 
 
-def test_run_eval_accepts_canonical_args_and_prompt_argument(monkeypatch, tmp_path: Path) -> None:
+def test_run_accepts_canonical_args_and_prompt_argument(monkeypatch, tmp_path: Path) -> None:
     captured = {}
     run_id = "20260517-143012-a1b2c3"
     monkeypatch.setenv("EVAL_FEIA_RESULTS_DIR", str(tmp_path / "stored-results"))
@@ -90,7 +82,7 @@ def test_run_eval_accepts_canonical_args_and_prompt_argument(monkeypatch, tmp_pa
     result = CliRunner().invoke(
         app,
         [
-            "run-eval",
+            "run",
             "hello inline",
             "--repo",
             str(tmp_path),
@@ -114,21 +106,21 @@ def test_run_eval_accepts_canonical_args_and_prompt_argument(monkeypatch, tmp_pa
     assert metadata["exit_code"] == 0
 
 
-def test_run_eval_rejects_removed_config_and_alias_options() -> None:
+def test_run_rejects_removed_config_and_alias_options() -> None:
     for option in ("--config", "--base-ref", "--worktrees", "--prompt", "--branch-name"):
-        result = CliRunner().invoke(app, ["run-eval", "hello inline", option, "value"], color=False)
+        result = CliRunner().invoke(app, ["run", "hello inline", option, "value"], color=False)
 
         assert result.exit_code == 2
 
 
-def test_run_eval_rejects_prompt_argument_with_prompt_file(monkeypatch, tmp_path: Path) -> None:
+def test_run_rejects_prompt_argument_with_prompt_file(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("EVAL_FEIA_RESULTS_DIR", str(tmp_path / "stored-results"))
     prompt_file = tmp_path / "prompt.md"
     prompt_file.write_text("hello from file", encoding="utf-8")
 
     result = CliRunner().invoke(
         app,
-        ["run-eval", "hello inline", "--prompt-file", str(prompt_file)],
+        ["run", "hello inline", "--prompt-file", str(prompt_file)],
         color=False,
     )
 
@@ -136,19 +128,19 @@ def test_run_eval_rejects_prompt_argument_with_prompt_file(monkeypatch, tmp_path
     assert "provide only one prompt source" in result.output
 
 
-def test_clean_run_artifacts_manifest_is_positional_argument() -> None:
-    result = CliRunner().invoke(app, ["clean-run-artifacts", "--help"], color=False)
+def test_clean_manifest_is_positional_argument() -> None:
+    result = CliRunner().invoke(app, ["clean", "--help"], color=False)
 
     assert result.exit_code == 0
     assert "MANIFEST" in result.output
     assert "--delete-index" in result.output
-    assert "--results" not in result.output
+    assert "--results" in result.output
     assert "--db" not in result.output
     assert "--manifest" not in result.output
 
 
-def test_list_run_artifacts_help_includes_index_filters() -> None:
-    result = CliRunner().invoke(app, ["list-run-artifacts", "--help"], color=False)
+def test_list_help_includes_index_filters() -> None:
+    result = CliRunner().invoke(app, ["list", "--help"], color=False)
 
     assert result.exit_code == 0
     assert "--limit" in result.output
@@ -158,7 +150,7 @@ def test_list_run_artifacts_help_includes_index_filters() -> None:
     assert "--json" in result.output
 
 
-def test_list_run_artifacts_json_reads_sqlite_index_when_configured(monkeypatch, tmp_path: Path) -> None:
+def test_list_json_reads_sqlite_index_when_configured(monkeypatch, tmp_path: Path) -> None:
     db_path = tmp_path / "eval-feia.sqlite3"
     monkeypatch.setenv("EVAL_FEIA_DB_PATH", str(db_path))
     create_run(
@@ -169,7 +161,7 @@ def test_list_run_artifacts_json_reads_sqlite_index_when_configured(monkeypatch,
         output_dir=tmp_path / "runs" / "json-run",
     )
 
-    result = CliRunner().invoke(app, ["list-run-artifacts", "--json"], color=False)
+    result = CliRunner().invoke(app, ["list", "--json"], color=False)
 
     assert result.exit_code == 0
     rows = json.loads(result.output)
@@ -177,7 +169,7 @@ def test_list_run_artifacts_json_reads_sqlite_index_when_configured(monkeypatch,
     assert rows[0]["status"] == "success"
 
 
-def test_stored_result_commands_list_show_path_and_print(monkeypatch, tmp_path: Path) -> None:
+def test_results_commands_list_show_path_and_print(monkeypatch, tmp_path: Path) -> None:
     run_id = "20260517-143012-a1b2c3"
     root = tmp_path / "results"
     monkeypatch.setenv("EVAL_FEIA_RESULTS_DIR", str(root))
@@ -192,33 +184,76 @@ def test_stored_result_commands_list_show_path_and_print(monkeypatch, tmp_path: 
         stderr_text="",
     )
 
-    listed = CliRunner().invoke(app, ["list-stored-results"], color=False)
+    listed = CliRunner().invoke(app, ["results", "list"], color=False)
     assert listed.exit_code == 0
     assert "RUN_ID" in listed.output
     assert "STATUS" in listed.output
     assert run_id in listed.output
     assert "success" in listed.output
 
-    shown = CliRunner().invoke(app, ["show-stored-result", run_id], color=False)
+    shown = CliRunner().invoke(app, ["results", "show", run_id], color=False)
     assert shown.exit_code == 0
     assert "run_id: 20260517-143012-a1b2c3" in shown.output
     assert "status: success" in shown.output
     assert "quick summary" in shown.output
 
-    path = CliRunner().invoke(app, ["print-stored-result-path", run_id], color=False)
+    path = CliRunner().invoke(app, ["results", "path", run_id], color=False)
     assert path.exit_code == 0
     assert path.output == f"{run_directory(run_id)}\n"
 
-    output = CliRunner().invoke(app, ["print-stored-result-file", run_id], color=False)
+    output = CliRunner().invoke(app, ["results", "file", run_id], color=False)
     assert output.exit_code == 0
     assert output.output == "final output\n"
 
-    metadata = CliRunner().invoke(app, ["print-stored-result-file", run_id, "metadata.json"], color=False)
+    metadata = CliRunner().invoke(app, ["results", "file", run_id, "metadata.json"], color=False)
     assert metadata.exit_code == 0
     assert '"run_id": "20260517-143012-a1b2c3"' in metadata.output
 
 
-def test_clean_stored_results_removes_configured_results_root(monkeypatch, tmp_path: Path) -> None:
+def test_results_show_falls_back_to_output_when_summary_is_missing(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    run_id = "20260517-143012-a1b2c3"
+    monkeypatch.setenv("EVAL_FEIA_RESULTS_DIR", str(tmp_path / "results"))
+    start_run_record(run_id, cwd=tmp_path, branch="main", label=None, command=None)
+    complete_run_record(
+        run_id,
+        status="success",
+        exit_code=0,
+        output_text="fallback output\n",
+        summary_text="",
+        stdout_text="",
+        stderr_text="",
+    )
+    (run_directory(run_id) / "summary.txt").unlink()
+
+    shown = CliRunner().invoke(app, ["results", "show", run_id], color=False)
+
+    assert shown.exit_code == 0
+    assert "fallback output" in shown.output
+
+
+def test_clean_rejects_ambiguous_results_options(tmp_path: Path) -> None:
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text("{}", encoding="utf-8")
+
+    with_manifest = CliRunner().invoke(app, ["clean", str(manifest), "--results"], color=False)
+    with_force = CliRunner().invoke(app, ["clean", "--results", "--force"], color=False)
+    with_delete_index = CliRunner().invoke(app, ["clean", "--results", "--delete-index"], color=False)
+    without_manifest = CliRunner().invoke(app, ["clean"], color=False)
+
+    assert with_manifest.exit_code == 2
+    assert "MANIFEST cannot be used with --results" in with_manifest.output
+    assert with_force.exit_code == 2
+    assert "--force and --delete-index apply only to manifest cleanup" in with_force.output
+    assert with_delete_index.exit_code == 2
+    assert "--force and --delete-index apply only to manifest cleanup" in with_delete_index.output
+    assert without_manifest.exit_code == 2
+    assert "MANIFEST is required unless --results is set" in without_manifest.output
+
+
+def test_clean_results_removes_configured_results_root(monkeypatch, tmp_path: Path) -> None:
     run_id = "20260517-143012-a1b2c3"
     root = tmp_path / "results"
     monkeypatch.setenv("EVAL_FEIA_RESULTS_DIR", str(root))
@@ -233,33 +268,33 @@ def test_clean_stored_results_removes_configured_results_root(monkeypatch, tmp_p
         stderr_text="",
     )
 
-    dry_run = CliRunner().invoke(app, ["clean-stored-results", "--dry-run"], color=False)
+    dry_run = CliRunner().invoke(app, ["clean", "--results", "--dry-run"], color=False)
 
     assert dry_run.exit_code == 0
     assert f"would remove results: {root.resolve(strict=False)}" in dry_run.output
     assert root.exists()
 
-    cleaned = CliRunner().invoke(app, ["clean-stored-results"], color=False)
+    cleaned = CliRunner().invoke(app, ["clean", "--results"], color=False)
 
     assert cleaned.exit_code == 0
     assert f"removed results: {root.resolve(strict=False)}" in cleaned.output
     assert not root.exists()
 
 
-def test_list_run_artifacts_empty_state_is_success(monkeypatch, tmp_path: Path) -> None:
+def test_list_empty_state_is_success(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.chdir(tmp_path)
 
-    result = CliRunner().invoke(app, ["list-run-artifacts"], color=False)
+    result = CliRunner().invoke(app, ["list"], color=False)
 
     assert result.exit_code == 0
     assert "No saved runs found." in result.output
 
 
-def test_list_run_artifacts_outputs_metadata(monkeypatch, tmp_path: Path) -> None:
+def test_list_outputs_metadata(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.chdir(tmp_path)
     run_dir = _write_saved_run(tmp_path, "run-1", label="nightly", branch_name="eval/run-1/main")
 
-    result = CliRunner().invoke(app, ["list-run-artifacts"], color=False)
+    result = CliRunner().invoke(app, ["list"], color=False)
 
     assert result.exit_code == 0
     assert "run-1" in result.output
@@ -269,28 +304,38 @@ def test_list_run_artifacts_outputs_metadata(monkeypatch, tmp_path: Path) -> Non
     assert str(run_dir / "run-summary.json") in result.output
 
 
-def test_ambiguous_old_commands_are_not_registered() -> None:
-    for command in ("run", "list", "ls", "clean", "results"):
+def test_long_command_names_are_not_registered() -> None:
+    for command in (
+        "run-eval",
+        "list-run-artifacts",
+        "list-stored-results",
+        "show-stored-result",
+        "print-stored-result-path",
+        "print-stored-result-file",
+        "clean-run-artifacts",
+        "clean-stored-results",
+        "ls",
+    ):
         result = CliRunner().invoke(app, [command, "--help"], color=False)
 
         assert result.exit_code == 2
 
 
-def test_list_run_artifacts_limit_shows_most_recent_runs(monkeypatch, tmp_path: Path) -> None:
+def test_list_limit_shows_most_recent_runs(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.chdir(tmp_path)
     old_run = _write_saved_run(tmp_path, "old-run", branch_name="eval/old-run/main")
     new_run = _write_saved_run(tmp_path, "new-run", branch_name="eval/new-run/main")
     _touch_run(old_run, 1_700_000_000)
     _touch_run(new_run, 1_800_000_000)
 
-    result = CliRunner().invoke(app, ["list-run-artifacts", "--limit", "1"], color=False)
+    result = CliRunner().invoke(app, ["list", "--limit", "1"], color=False)
 
     assert result.exit_code == 0
     assert "new-run" in result.output
     assert "old-run" not in result.output
 
 
-def test_list_run_artifacts_output_dir_reads_custom_root(monkeypatch, tmp_path: Path) -> None:
+def test_list_output_dir_reads_custom_root(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.chdir(tmp_path)
     output_root = tmp_path / "custom-runs"
     run_dir = _write_saved_run(
@@ -301,10 +346,10 @@ def test_list_run_artifacts_output_dir_reads_custom_root(monkeypatch, tmp_path: 
         branch_name="eval/custom-run/main",
     )
 
-    default_result = CliRunner().invoke(app, ["list-run-artifacts"], color=False)
+    default_result = CliRunner().invoke(app, ["list"], color=False)
     list_result = CliRunner().invoke(
         app,
-        ["list-run-artifacts", "--output-dir", str(output_root)],
+        ["list", "--output-dir", str(output_root)],
         color=False,
     )
 
@@ -317,11 +362,11 @@ def test_list_run_artifacts_output_dir_reads_custom_root(monkeypatch, tmp_path: 
     assert str(run_dir) in list_result.output
 
 
-def test_list_run_artifacts_json_outputs_saved_runs(monkeypatch, tmp_path: Path) -> None:
+def test_list_json_outputs_saved_runs(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.chdir(tmp_path)
     run_dir = _write_saved_run(tmp_path, "run-1", label="nightly", branch_name="eval/run-1/main")
 
-    result = CliRunner().invoke(app, ["list-run-artifacts", "--json"], color=False)
+    result = CliRunner().invoke(app, ["list", "--json"], color=False)
 
     assert result.exit_code == 0
     payload = json.loads(result.output)
@@ -337,14 +382,14 @@ def test_list_run_artifacts_json_outputs_saved_runs(monkeypatch, tmp_path: Path)
     assert payload[0]["warning"] is None
 
 
-def test_list_run_artifacts_tolerates_broken_metadata(monkeypatch, tmp_path: Path) -> None:
+def test_list_tolerates_broken_metadata(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.chdir(tmp_path)
     run_dir = tmp_path / ".eval-feia" / "runs" / "broken-run"
     run_dir.mkdir(parents=True)
     manifest_path = run_dir / "manifest.json"
     manifest_path.write_text("{not json", encoding="utf-8")
 
-    result = CliRunner().invoke(app, ["list-run-artifacts"], color=False)
+    result = CliRunner().invoke(app, ["list"], color=False)
 
     assert result.exit_code == 0
     assert "warning: broken-run: failed to parse manifest.json" in result.output

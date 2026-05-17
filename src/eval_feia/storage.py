@@ -549,8 +549,8 @@ def _load_metadata(value: str | None) -> dict[str, Any]:
 def _path_or_none(value: object) -> str | None:
     if value is None:
         return None
-    if isinstance(value, Path):
-        return str(value.expanduser().resolve(strict=False))
+    if isinstance(value, Path | str):
+        return str(Path(value).expanduser().resolve(strict=False))
     return str(value)
 
 
