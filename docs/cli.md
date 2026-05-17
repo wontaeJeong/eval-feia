@@ -1,30 +1,30 @@
 # CLI Spec
 
-## Command: `eval-feia run-eval`
+## Command: `eval-feia run`
 
 Runs the full evaluation pipeline.
 
 ### Usage
 
 ```bash
-eval-feia run-eval "Fix the failing tests" --repo . --branch HEAD --attempts 1
+eval-feia run "Fix the failing tests" --repo . --branch HEAD --attempts 1
 ```
 
 Use `--prompt-file` when the prompt is stored on disk:
 
 ```bash
-eval-feia run-eval --prompt-file ./prompt.md --repo . --branch HEAD --attempts 3 --command bash --output-dir ./.eval-feia/runs
+eval-feia run --prompt-file ./prompt.md --repo . --branch HEAD --attempts 3 --command bash --output-dir ./.eval-feia/runs
 ```
 
 For a one-off eval, inline prompt, branch, and a run-level label can be supplied directly:
 
 ```bash
-eval-feia run-eval "..." --label "foo test"
+eval-feia run "..." --label "foo test"
 ```
 
 Provide only one prompt source: the positional prompt argument or `--prompt-file`.
 
-At startup `run-eval` prints the stored result location:
+At startup `run` prints the stored result location:
 
 ```text
 Run ID: 20260517-143012-a1b2c3
@@ -88,24 +88,24 @@ Recommended exit codes:
 - `6`: SQLite metadata index inspection failed
 - `130`: interrupted by user
 
-## Command: `eval-feia list-run-artifacts`
+## Command: `eval-feia list`
 
 Lists generated run artifacts from the configured run output root.
 
 ### Usage
 
 ```bash
-eval-feia list-run-artifacts
-eval-feia list-run-artifacts --limit 5
-eval-feia list-run-artifacts --output-dir ./custom-runs
-eval-feia list-run-artifacts --json
-EVAL_FEIA_DB_PATH=/tmp/eval-feia.sqlite3 eval-feia list-run-artifacts --json
-eval-feia list-run-artifacts --status success --branch HEAD
+eval-feia list
+eval-feia list --limit 5
+eval-feia list --output-dir ./custom-runs
+eval-feia list --json
+EVAL_FEIA_DB_PATH=/tmp/eval-feia.sqlite3 eval-feia list --json
+eval-feia list --status success --branch HEAD
 ```
 
 ### Behavior
 
-- By default, reads saved run directories under the same output root used by `run-eval`; defaults to `.eval-feia/runs` and accepts `--output-dir` for custom roots.
+- By default, reads saved run directories under the same output root used by `run`; defaults to `.eval-feia/runs` and accepts `--output-dir` for custom roots.
 - Prefers `manifest.json` and `run-summary.json` metadata when present.
 - Falls back to the run directory name, file paths, and modification time for partial or legacy results.
 - Sorts newest modified runs first.
@@ -141,15 +141,16 @@ No saved runs found.
 --json              Print saved runs as a JSON array.
 ```
 
-## Command: `eval-feia clean-run-artifacts`
+## Command: `eval-feia clean`
 
 Removes generated resources from a previous run.
 
 ### Usage
 
 ```bash
-eval-feia clean-run-artifacts .eval-feia/runs/<run-id>/manifest.json
-eval-feia clean-run-artifacts .eval-feia/runs/<run-id>/manifest.json --delete-index
+eval-feia clean .eval-feia/runs/<run-id>/manifest.json
+eval-feia clean .eval-feia/runs/<run-id>/manifest.json --delete-index
+eval-feia clean --results --dry-run
 ```
 
 ### Behavior
@@ -163,42 +164,35 @@ eval-feia clean-run-artifacts .eval-feia/runs/<run-id>/manifest.json --delete-in
 - Does not remove stored results.
 - By default, preserves SQLite records and marks the run output as missing in `metadata_json` after deleting manifest-recorded files.
 - `--delete-index` deletes only the default database under the manifest output root; custom `EVAL_FEIA_DB_PATH` databases must be removed manually.
+- `--results` removes the configured durable stored-results root instead of generated artifacts. It cannot be combined with a manifest, `--force`, or `--delete-index`.
 
 ### Flags
 
 ```text
 MANIFEST             Manifest file to clean.
+--results            Remove the configured durable stored-results root.
 --dry-run            Print planned deletions without deleting.
 --force              Continue after non-critical cleanup errors.
 --delete-index       Also delete the manifest-recorded default SQLite metadata index database.
 ```
 
-## Command: `eval-feia clean-stored-results`
+`clean --results` validates that the target is an eval-feia-owned results root and rejects unexpected top-level entries before deleting anything.
 
-Removes the configured durable stored-results root.
-
-```bash
-eval-feia clean-stored-results --dry-run
-eval-feia clean-stored-results
-```
-
-The command validates that the target is an eval-feia-owned results root and rejects unexpected top-level entries before deleting anything.
-
-## Stored result inspection commands
+## Command group: `eval-feia results`
 
 Inspect locally stored run results without contacting opencode.
 
 ```bash
-eval-feia list-stored-results
-eval-feia show-stored-result <run-id>
-eval-feia print-stored-result-path <run-id>
-eval-feia print-stored-result-file <run-id> [file]
+eval-feia results list
+eval-feia results show <run-id>
+eval-feia results path <run-id>
+eval-feia results file <run-id> [file]
 ```
 
-- `list-stored-results` prints `run_id`, `created_at`, `status`, `branch`, `label`, `cwd`, and `output_dir` newest first. If `index.jsonl` is missing or damaged, it scans `runs/*/metadata.json`.
-- `show-stored-result <run-id>` prints metadata plus `summary.txt`, falling back to the start of `output.txt`.
-- `print-stored-result-path <run-id>` prints only the absolute stored run directory for scripts.
-- `print-stored-result-file <run-id> [file]` prints a file inside the run directory; the default is `output.txt`. Absolute paths and `..` traversal are rejected.
+- `results list` prints `run_id`, `created_at`, `status`, `branch`, `label`, `cwd`, and `output_dir` newest first. If `index.jsonl` is missing or damaged, it scans `runs/*/metadata.json`.
+- `results show <run-id>` prints metadata plus `summary.txt`, falling back to the start of `output.txt`.
+- `results path <run-id>` prints only the absolute stored run directory for scripts.
+- `results file <run-id> [file]` prints a file inside the run directory; the default is `output.txt`. Absolute paths and `..` traversal are rejected.
 
 ## Removed or deferred commands
 
@@ -207,10 +201,10 @@ These commands are intentionally out of MVP scope:
 ```text
 serve      # server lifecycle is external
 attach     # REST execution replaces CLI attach
-collect    # run-eval collects automatically
-summary    # run-eval summarizes automatically
-report     # run-eval writes report automatically
+collect    # run collects automatically
+summary    # run summarizes automatically
+report     # run writes report automatically
 status     # not needed unless detached/background run mode is added later
 ```
 
-The former ambiguous commands `run`, `list`, `ls`, `clean`, and `results ...` are intentionally not registered; use the explicit command names above.
+The former verbose command names (`run-eval`, `list-run-artifacts`, `clean-run-artifacts`, `clean-stored-results`, and standalone stored-result inspection commands) are intentionally not registered; use `run`, `list`, `results`, and `clean` instead.
