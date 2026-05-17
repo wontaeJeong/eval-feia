@@ -16,7 +16,8 @@ Build a local CLI tool that:
 4. Collects messages, session metadata, child sessions, todo state, diffs, file status, validation logs, and final assistant output.
 5. Writes a structured run directory.
 6. Prints a final result summary automatically at the end of `run`.
-7. Cleans generated worktrees and result files only through a manifest-based `clean` command.
+7. Lists saved run results through a read-only `list` / `ls` command.
+8. Cleans generated worktrees and result files only through a manifest-based `clean` command.
 
 ## Non-goals
 
@@ -55,7 +56,15 @@ eval-feia run --prompt-file prompt.md --repo . --branch HEAD --attempts 1
 - per-worktree progress and validation status
 - final plain summary table
 
-5. User optionally removes generated resources:
+5. User can inspect saved runs:
+
+```bash
+eval-feia list
+eval-feia ls --limit 5
+eval-feia list --output-dir ./custom-runs
+```
+
+6. User optionally removes generated resources:
 
 ```bash
 eval-feia clean .eval-feia/runs/<run-id>/manifest.json
@@ -66,6 +75,10 @@ eval-feia clean .eval-feia/runs/<run-id>/manifest.json
 ### `run`
 
 `run` performs preflight, worktree creation, REST execution, collection, local validation, and final summary output.
+
+### `list` / `ls`
+
+`list` prints saved run results from the run output root, including custom roots passed with `--output-dir`. `ls` is an alias for the same handler. The command is read-only and tolerates missing or partial metadata.
 
 ### `clean`
 
