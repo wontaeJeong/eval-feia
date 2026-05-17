@@ -15,9 +15,9 @@ The MVP is REST-only. Do not implement execution by shelling out to `opencode ru
 5. For GET/HEAD requests, prefer a `directory` query parameter with the directory URL-encoded exactly once.
 6. Use absolute paths for worktree directories.
 7. Validate returned session directory/path information when available.
-8. Use manifest-based cleanup only.
+8. Use manifest-based cleanup for generated worktrees/run artifacts; stored result history cleanup must require an explicit `clean --results` action and a validated eval-feia results root.
 9. `run` must perform collection and final summary automatically.
-10. Keep the CLI surface minimal: `run` and `clean` only for MVP.
+10. Keep the CLI surface minimal: `run`, `clean`, and read-only `results` inspection for MVP.
 
 ## Source constraints
 
@@ -73,7 +73,7 @@ eval-feia/
 - Use typed dataclasses or pydantic models for config, manifest, and run result records.
 - Never log secrets, Authorization headers, provider API keys, or full auth config.
 - Include run IDs and candidate IDs in logs.
-- All filesystem deletion must go through a manifest validation step.
+- Generated worktree/run artifact deletion must go through manifest validation; stored result history deletion must require explicit `clean --results` and a validated eval-feia results root.
 
 ## REST execution contract
 

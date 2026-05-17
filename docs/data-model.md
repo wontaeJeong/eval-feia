@@ -1,5 +1,42 @@
 # Data Model
 
+## Stored result metadata
+
+Each CLI `run` writes a durable record under `$HOME/.eval-feia/results` or
+`EVAL_FEIA_RESULTS_DIR`:
+
+```text
+results/
+  .eval-feia-results
+  index.jsonl
+  runs/<run-id>/
+    metadata.json
+    output.txt
+    stdout.log
+    stderr.log
+    run.log
+    summary.txt
+```
+
+`metadata.json` keeps stable keys for later migration to SQLite:
+
+```json
+{
+  "run_id": "20260517-143012-a1b2c3",
+  "created_at": "2026-05-17T14:30:12+09:00",
+  "finished_at": "2026-05-17T14:31:00+09:00",
+  "status": "success",
+  "cwd": "/abs/path/repo",
+  "output_dir": "/home/user/.eval-feia/results/runs/20260517-143012-a1b2c3",
+  "branch": "HEAD",
+  "label": "smoke",
+  "command": null,
+  "exit_code": 0
+}
+```
+
+The log files are local debugging artifacts and may contain command output or error text from the run environment.
+
 ## Manifest
 
 `manifest.json` is the authoritative cleanup and provenance record.

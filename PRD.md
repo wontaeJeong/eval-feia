@@ -69,7 +69,14 @@ eval-feia clean .eval-feia/runs/<run-id>/manifest.json
 
 ### `clean`
 
-`clean` removes generated worktrees and result artifacts recorded in a manifest. It never kills `opencode serve` and never deletes resources not recorded in the manifest.
+`clean` removes generated worktrees and result artifacts recorded in a manifest. It never kills `opencode serve`; outside manifest mode, it may remove stored result history only through the explicit `clean --results` path after validating the eval-feia results root.
+
+Stored result history is separate from manifest cleanup. It is removed only by the explicit
+`clean --results` option after validating the eval-feia results root.
+
+### `results`
+
+`results list`, `results show <run-id>`, `results path <run-id>`, and `results cat <run-id> [file]` inspect stored local result history without contacting opencode.
 
 ## Acceptance criteria
 
@@ -83,7 +90,7 @@ A run is acceptable when all of the following are true:
 - The tool waits until each execution is complete or times out.
 - The tool collects messages, session info, children, todo state, diff, file status, and local git diff.
 - The console output includes the result directory before execution and a final plain summary table after execution.
-- `clean` only removes paths listed in the manifest.
+- `clean` only removes paths listed in the manifest unless `--results` is explicitly used for the stored results root.
 
 ## Success metrics
 
