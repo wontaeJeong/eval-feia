@@ -129,7 +129,7 @@ def _run_git(args: list[str]) -> subprocess.CompletedProcess[str]:
         raise GitError(
             "git command failed",
             details={
-                "args": _safe_args(args),
+                "args": list(args),
                 "returncode": result.returncode,
                 "stdout": result.stdout,
                 "stderr": result.stderr,
@@ -140,10 +140,6 @@ def _run_git(args: list[str]) -> subprocess.CompletedProcess[str]:
 
 def _run_git_no_raise(args: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(args, text=True, capture_output=True, check=False)
-
-
-def _safe_args(args: list[str]) -> list[str]:
-    return [arg for arg in args]
 
 
 def sanitize_branch_name(value: str | None, fallback: str) -> str:
