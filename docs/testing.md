@@ -95,5 +95,11 @@ opencode serve --hostname 127.0.0.1 --port 4096
 
 eval-feia run --prompt-file examples/prompt.md --repo .
 
+eval-feia results list
+
+eval-feia results show <run-id>
+
 eval-feia clean .eval-feia/runs/<run-id>/manifest.json --dry-run
+
+eval-feia clean --results --dry-run
 ```

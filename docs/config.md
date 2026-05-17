@@ -16,9 +16,12 @@ The MVP CLI is arguments-only. It does not load YAML, JSON, or TOML config files
 - `--command NAME`: optional opencode slash command. A leading slash is accepted and stripped before sending the HTTP request body.
 - `--output-dir PATH`: run output root. Defaults to `.eval-feia/runs`.
 
+Stored result records are separate from generated run artifacts. They default to
+`$HOME/.eval-feia/results` and can be overridden with `EVAL_FEIA_RESULTS_DIR`.
+
 ## Internal Model
 
-The code still uses typed Pydantic models for server, repo, run, validation, summary, and manifest data. Programmatic callers and tests may construct `EvalConfig` directly, but the CLI surface stays minimal: `run` and `clean` only, with direct flags only.
+The code still uses typed Pydantic models for server, repo, run, validation, summary, and manifest data. Programmatic callers and tests may construct `EvalConfig` directly, while the CLI keeps direct `run`/`clean` flags and a small `results` inspection group.
 
 Server health preflight defaults to 10 attempts, 500ms between attempts, and a dedicated 2s timeout per `GET /global/health` request.
 
