@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Iterator, Mapping, cast
 
 from .manifest import utc_now_iso
+from .paths import OUTPUT_DIR_NAME, base_root_for_output_root, configured_base_root
 from .records import RunRow
 
 
@@ -27,12 +28,17 @@ def default_db_path(output_root: Path | None = None) -> Path:
     override = os.environ.get(DB_ENV_VAR)
     if override:
         return _absolute_path(Path(override))
-    root = output_root or Path(".eval-feia/runs")
-    return db_path_for_output_root(root)
+    if output_root is not None:
+        return db_path_for_output_root(output_root)
+    return db_path_for_base_root(configured_base_root())
 
 
 def db_path_for_output_root(output_root: Path) -> Path:
-    return _absolute_path(output_root) / DB_FILENAME
+    return db_path_for_base_root(base_root_for_output_root(output_root))
+
+
+def db_path_for_base_root(base_root: Path) -> Path:
+    return _absolute_path(base_root) / DB_FILENAME
 
 
 def init_db(db_path: Path) -> Path:
@@ -223,9 +229,10 @@ def backfill_from_output_dir(db_path: Path, output_root: Path) -> int:
         return 0
     imported = 0
     with _connect(db_path) as conn:
-        for run_dir in sorted(root.iterdir()):
-            if not run_dir.is_dir():
+        for entry in sorted(root.iterdir()):
+            if not entry.is_dir():
                 continue
+            run_dir = entry / OUTPUT_DIR_NAME if (entry / OUTPUT_DIR_NAME).is_dir() else entry
             record = _record_from_output_dir(run_dir)
             if record is None:
                 continue

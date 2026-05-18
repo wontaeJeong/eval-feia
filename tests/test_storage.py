@@ -200,3 +200,26 @@ def test_default_db_path_uses_environment_override(monkeypatch, tmp_path: Path) 
     monkeypatch.setenv("EVAL_FEIA_DB_PATH", str(override))
 
     assert default_db_path(tmp_path / "runs") == override.resolve(strict=False)
+
+
+def test_default_db_path_uses_unified_base(monkeypatch, tmp_path: Path) -> None:
+    base_dir = tmp_path / "state"
+    monkeypatch.setenv("EVAL_FEIA_BASE_DIR", str(base_dir))
+    monkeypatch.delenv("EVAL_FEIA_DB_PATH", raising=False)
+
+    assert default_db_path() == (base_dir / "eval-feia.sqlite3").resolve(strict=False)
+    assert default_db_path(base_dir) == (
+        base_dir / "eval-feia.sqlite3"
+    ).resolve(strict=False)
+
+
+def test_default_db_path_uses_home_base(monkeypatch, tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("EVAL_FEIA_BASE_DIR", raising=False)
+    monkeypatch.delenv("EVAL_FEIA_DB_PATH", raising=False)
+
+    assert default_db_path() == (home / ".eval-feia" / "eval-feia.sqlite3").resolve(
+        strict=False
+    )
