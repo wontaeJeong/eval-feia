@@ -36,6 +36,7 @@ from .manifest import (
     write_manifest,
 )
 from .opencode_client import OpencodeClient, normalize_command
+from .paths import output_dir_for_run, worktree_dir_for_run
 from .plain_table import print_plain_table
 from .records import CandidateResult, CandidateSummary, RunSummary, ValidationCommandResult, ValidationResult
 from .storage import (
@@ -83,7 +84,7 @@ def run_evaluation(
     actual_run_id = run_id or generate_run_id()
     started_monotonic = time.monotonic()
     started_at = utc_now_iso()
-    output_dir = (config.run.output_root / actual_run_id).resolve(strict=False)
+    output_dir = output_dir_for_run(actual_run_id, config.run.output_root).resolve(strict=False)
     db_path = default_db_path(config.run.output_root)
     db_enabled = _safe_create_run_record(
         active_console,
@@ -143,7 +144,7 @@ def run_evaluation(
             message="preparing output directories",
         )
         _print_progress(active_console, "preparing output directories")
-        worktree_root = (config.repo.worktree_root / actual_run_id).resolve(strict=False)
+        worktree_root = worktree_dir_for_run(actual_run_id, config.repo.worktree_root).resolve(strict=False)
         output_dir.mkdir(parents=True, exist_ok=False)
         write_generated_marker(output_dir)
         write_generated_marker(worktree_root)
