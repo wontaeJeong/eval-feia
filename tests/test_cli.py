@@ -40,6 +40,8 @@ def test_run_help_lists_command_option() -> None:
     assert "--branch" in result.output
     assert "--attempts" in result.output
     assert "--repo" in result.output
+    assert "--base-dir" in result.output
+    assert "EVAL_FEIA_BASE_DIR" in result.output
     assert "EVAL_FEIA_DB_PATH" in result.output
     assert "--config" not in result.output
     assert "--base-ref" not in result.output
@@ -106,6 +108,47 @@ def test_run_accepts_canonical_args_and_prompt_argument(monkeypatch, tmp_path: P
     assert metadata["exit_code"] == 0
 
 
+def test_run_base_dir_controls_config_and_stored_results(monkeypatch, tmp_path: Path) -> None:
+    captured = {}
+    run_id = "20260517-143012-a1b2c3"
+    base_dir = tmp_path / "state"
+    monkeypatch.delenv("EVAL_FEIA_RESULTS_DIR", raising=False)
+    monkeypatch.setattr("eval_feia.cli.generate_run_id", lambda: run_id)
+
+    def fake_run_evaluation(config, *, console, run_id):
+        captured["config"] = config
+
+        class Outcome:
+            passed = True
+            output_dir = config.run.output_root / run_id / "output"
+            summary = {
+                "run_id": run_id,
+                "label": None,
+                "server": {"url": "http://opencode.test"},
+                "opencode_version": "fake",
+                "repo": {"path": str(tmp_path), "base_ref": "HEAD", "base_sha": "abc123"},
+                "output_dir": str(output_dir),
+                "passed": True,
+                "health": {},
+                "candidates": [],
+            }
+
+        return Outcome()
+
+    monkeypatch.setattr("eval_feia.cli.run_evaluation", fake_run_evaluation)
+
+    result = CliRunner().invoke(
+        app,
+        ["run", "hello inline", "--base-dir", str(base_dir)],
+        color=False,
+    )
+
+    assert result.exit_code == 0
+    assert captured["config"].run.output_root == base_dir.resolve(strict=False)
+    assert captured["config"].repo.worktree_root == base_dir.resolve(strict=False)
+    assert (base_dir / run_id / "results" / "metadata.json").exists()
+
+
 def test_run_rejects_removed_config_and_alias_options() -> None:
     for option in ("--config", "--base-ref", "--worktrees", "--prompt", "--branch-name"):
         result = CliRunner().invoke(app, ["run", "hello inline", option, "value"], color=False)
@@ -135,6 +178,7 @@ def test_clean_manifest_is_positional_argument() -> None:
     assert "MANIFEST" in result.output
     assert "--delete-index" in result.output
     assert "--results" in result.output
+    assert "--base-dir" in result.output
     assert "--db" not in result.output
     assert "--manifest" not in result.output
 
@@ -147,6 +191,7 @@ def test_list_help_includes_index_filters() -> None:
     assert "--status" in result.output
     assert "--branch" in result.output
     assert "--label" in result.output
+    assert "--base-dir" in result.output
     assert "--json" in result.output
 
 
@@ -281,8 +326,42 @@ def test_clean_results_removes_configured_results_root(monkeypatch, tmp_path: Pa
     assert not root.exists()
 
 
+def test_clean_results_uses_base_dir(monkeypatch, tmp_path: Path) -> None:
+    run_id = "20260517-143012-a1b2c3"
+    base_dir = tmp_path / "state"
+    monkeypatch.delenv("EVAL_FEIA_RESULTS_DIR", raising=False)
+    start_run_record(
+        run_id,
+        cwd=tmp_path,
+        branch="HEAD",
+        label=None,
+        command=None,
+        root=base_dir / run_id / "results",
+    )
+    complete_run_record(
+        run_id,
+        status="success",
+        exit_code=0,
+        output_text="ok\n",
+        summary_text="ok\n",
+        stdout_text="",
+        stderr_text="",
+        root=base_dir / run_id / "results",
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["clean", "--results", "--base-dir", str(base_dir), "--dry-run"],
+        color=False,
+    )
+
+    assert result.exit_code == 0
+    assert f"would remove results: {(base_dir / run_id / 'results').resolve(strict=False)}" in result.output
+
+
 def test_list_empty_state_is_success(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
 
     result = CliRunner().invoke(app, ["list"], color=False)
 
@@ -292,6 +371,7 @@ def test_list_empty_state_is_success(monkeypatch, tmp_path: Path) -> None:
 
 def test_list_outputs_metadata(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
     run_dir = _write_saved_run(tmp_path, "run-1", label="nightly", branch_name="eval/run-1/main")
 
     result = CliRunner().invoke(app, ["list"], color=False)
@@ -323,6 +403,7 @@ def test_long_command_names_are_not_registered() -> None:
 
 def test_list_limit_shows_most_recent_runs(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
     old_run = _write_saved_run(tmp_path, "old-run", branch_name="eval/old-run/main")
     new_run = _write_saved_run(tmp_path, "new-run", branch_name="eval/new-run/main")
     _touch_run(old_run, 1_700_000_000)
@@ -337,6 +418,7 @@ def test_list_limit_shows_most_recent_runs(monkeypatch, tmp_path: Path) -> None:
 
 def test_list_output_dir_reads_custom_root(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
     output_root = tmp_path / "custom-runs"
     run_dir = _write_saved_run(
         tmp_path,
@@ -362,8 +444,45 @@ def test_list_output_dir_reads_custom_root(monkeypatch, tmp_path: Path) -> None:
     assert str(run_dir) in list_result.output
 
 
+def test_list_base_dir_reads_base_runs_root(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
+    base_dir = tmp_path / "state"
+    run_dir = _write_saved_run(
+        tmp_path,
+        "base-run",
+        output_root=base_dir,
+        label="base label",
+        branch_name="eval/base-run/main",
+    )
+
+    result = CliRunner().invoke(app, ["list", "--base-dir", str(base_dir)], color=False)
+
+    assert result.exit_code == 0
+    assert "base-run" in result.output
+    assert "base label" in result.output
+    assert str(run_dir) in result.output
+
+
+def test_list_index_filters_use_base_runs_root_when_index_is_empty(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    base_dir = tmp_path / "state"
+
+    result = CliRunner().invoke(
+        app,
+        ["list", "--base-dir", str(base_dir), "--status", "success"],
+        color=False,
+    )
+
+    assert result.exit_code == 0
+    assert "STATUS" in result.output
+
+
 def test_list_json_outputs_saved_runs(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
     run_dir = _write_saved_run(tmp_path, "run-1", label="nightly", branch_name="eval/run-1/main")
 
     result = CliRunner().invoke(app, ["list", "--json"], color=False)
@@ -384,6 +503,7 @@ def test_list_json_outputs_saved_runs(monkeypatch, tmp_path: Path) -> None:
 
 def test_list_tolerates_broken_metadata(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
     run_dir = tmp_path / ".eval-feia" / "runs" / "broken-run"
     run_dir.mkdir(parents=True)
     manifest_path = run_dir / "manifest.json"
@@ -405,9 +525,9 @@ def _write_saved_run(
     label: str | None = None,
     branch_name: str = "eval/run/cand-001",
 ) -> Path:
-    root = output_root or base_dir / ".eval-feia" / "runs"
-    output_dir = (root / run_id).resolve(strict=False)
-    worktree_root = (base_dir / ".eval-feia" / "worktrees" / run_id).resolve(strict=False)
+    root = output_root or base_dir / ".eval-feia"
+    output_dir = (root / run_id / "output").resolve(strict=False)
+    worktree_root = (root / run_id / "worktrees").resolve(strict=False)
     result_dir = output_dir / "candidates" / "cand-001"
     result_dir.mkdir(parents=True, exist_ok=True)
     manifest = Manifest(

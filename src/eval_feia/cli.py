@@ -12,6 +12,7 @@ from .clean import CleanupResult, clean_resources, clean_results
 from .config import EvalConfig, build_config
 from .errors import CleanupSafetyError, ConfigError, EvalFeiaError, GitError, HealthError
 from .listing import list_saved_runs, print_saved_runs, saved_runs_json
+from .paths import BASE_DIR_ENV, output_root_for_base, results_dir_for_run
 from .plain_table import print_plain_table
 from .results_store import (
     complete_run_record,
@@ -89,20 +90,34 @@ def run_eval(
             help="Run an opencode slash command; the prompt is sent as command arguments.",
         ),
     ] = None,
+    base_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--base-dir",
+            help=(
+                "Eval-feia base directory. Runs, worktrees, results, and the default "
+                f"SQLite index are derived from it. Overrides {BASE_DIR_ENV}."
+            ),
+        ),
+    ] = None,
     output_dir: Annotated[
         Path | None,
         typer.Option(
             "--output-dir",
             help=(
-                "Run output root. SQLite index defaults to this directory/"
-                f"eval-feia.sqlite3 unless {DB_ENV_VAR} is set."
+                "Generated run output root. The SQLite index defaults to the eval-feia "
+                f"base database unless {DB_ENV_VAR} is set."
             ),
         ),
     ] = None,
 ) -> None:
     """Create worktrees, execute opencode sessions, collect results, and summarize."""
+    if base_dir is not None and output_dir is not None:
+        console.print("--base-dir and --output-dir cannot be used together", style="red")
+        raise typer.Exit(2)
     run_id = generate_run_id()
-    stored_output_dir = run_directory(run_id)
+    results_root = _results_root_for_base_dir(run_id, base_dir)
+    stored_output_dir = run_directory(run_id, root=results_root)
     run_console = Console(record=True)
     run_console.print(f"Run ID: {run_id}", markup=False)
     run_console.print(f"Output directory: {stored_output_dir}", markup=False, soft_wrap=True)
@@ -112,6 +127,7 @@ def run_eval(
         branch=branch or "HEAD",
         label=label,
         command=command,
+        root=results_root,
     )
     try:
         eval_config = _build_run_config(
@@ -123,23 +139,24 @@ def run_eval(
             prompt_file=prompt_file,
             label=label,
             command=command,
+            base_dir=base_dir,
             output_dir=output_dir,
         )
         outcome = run_evaluation(eval_config, console=run_console, run_id=run_id)
     except ConfigError as exc:
         message = f"configuration error: {exc}"
         run_console.print(message, style="red")
-        _finish_failed_cli_run(run_id, run_console, exc, message, exit_code=2)
+        _finish_failed_cli_run(run_id, run_console, exc, message, exit_code=2, results_root=results_root)
         raise typer.Exit(2) from exc
     except HealthError as exc:
         message = f"opencode preflight failed: {exc}"
         run_console.print(message, style="red")
-        _finish_failed_cli_run(run_id, run_console, exc, message, exit_code=3)
+        _finish_failed_cli_run(run_id, run_console, exc, message, exit_code=3, results_root=results_root)
         raise typer.Exit(3) from exc
     except GitError as exc:
         message = f"git worktree setup failed: {exc}"
         run_console.print(message, style="red")
-        _finish_failed_cli_run(run_id, run_console, exc, message, exit_code=4)
+        _finish_failed_cli_run(run_id, run_console, exc, message, exit_code=4, results_root=results_root)
         raise typer.Exit(4) from exc
     except KeyboardInterrupt as exc:
         message = "interrupted"
@@ -151,15 +168,16 @@ def run_eval(
             message,
             exit_code=130,
             kind="interrupted",
+            results_root=results_root,
         )
         raise typer.Exit(130) from exc
     except EvalFeiaError as exc:
         message = f"eval-feia failed: {exc}"
         run_console.print(message, style="red")
-        _finish_failed_cli_run(run_id, run_console, exc, message, exit_code=1)
+        _finish_failed_cli_run(run_id, run_console, exc, message, exit_code=1, results_root=results_root)
         raise typer.Exit(1) from exc
     exit_code = 0 if outcome.passed else 1
-    _finish_completed_cli_run(run_id, run_console, outcome, exit_code=exit_code)
+    _finish_completed_cli_run(run_id, run_console, outcome, exit_code=exit_code, results_root=results_root)
     raise typer.Exit(exit_code)
 
 
@@ -173,6 +191,7 @@ def _build_run_config(
     prompt_file: Path | None,
     label: str | None,
     command: str | None,
+    base_dir: Path | None,
     output_dir: Path | None,
 ) -> EvalConfig:
     _validate_prompt_sources(prompt, prompt_file)
@@ -185,6 +204,7 @@ def _build_run_config(
         prompt_file=prompt_file,
         label=label,
         command=command,
+        base_root=base_dir,
         output_dir=output_dir,
     )
 
@@ -201,10 +221,20 @@ def _validate_prompt_sources(prompt: str | None, prompt_file: Path | None) -> No
         )
 
 
+def _results_root_for_base_dir(run_id: str, base_dir: Path | None) -> Path | None:
+    if base_dir is None:
+        return None
+    return results_dir_for_run(run_id, base_dir).expanduser().resolve(strict=False)
+
+
 def _list_run_artifacts_command(
     limit: Annotated[
         int | None,
         typer.Option("--limit", help="Show only the most recent N generated run artifacts."),
+    ] = None,
+    base_dir: Annotated[
+        Path | None,
+        typer.Option("--base-dir", help="Eval-feia base directory whose runs/ root is inspected."),
     ] = None,
     output_dir: Annotated[
         Path | None,
@@ -222,9 +252,13 @@ def _list_run_artifacts_command(
     if limit is not None and limit < 1:
         console.print("--limit must be greater than zero", style="red")
         raise typer.Exit(2)
+    if base_dir is not None and output_dir is not None:
+        console.print("--base-dir and --output-dir cannot be used together", style="red")
+        raise typer.Exit(2)
     if _should_use_sqlite_index(status=status, branch=branch, label=label):
         _list_indexed_run_artifacts(
             limit=limit or 20,
+            base_dir=base_dir,
             output_dir=output_dir,
             status=status,
             branch=branch,
@@ -233,7 +267,10 @@ def _list_run_artifacts_command(
         )
         raise typer.Exit(0)
 
-    runs = list_saved_runs(output_root=output_dir, limit=limit)
+    runs = list_saved_runs(
+        output_root=_output_root_for_list(base_dir=base_dir, output_dir=output_dir),
+        limit=limit,
+    )
     if json_output:
         typer.echo(saved_runs_json(runs))
         raise typer.Exit(0)
@@ -248,6 +285,7 @@ def _should_use_sqlite_index(*, status: str | None, branch: str | None, label: s
 def _list_indexed_run_artifacts(
     *,
     limit: int,
+    base_dir: Path | None,
     output_dir: Path | None,
     status: str | None,
     branch: str | None,
@@ -260,7 +298,7 @@ def _list_indexed_run_artifacts(
             style="red",
         )
         raise typer.Exit(2)
-    output_root = (output_dir or Path(".eval-feia/runs")).expanduser().resolve(strict=False)
+    output_root = _output_root_for_list(base_dir=base_dir, output_dir=output_dir)
     db_path = default_db_path(output_root)
     try:
         if count_runs(db_path) == 0:
@@ -278,6 +316,14 @@ def _list_indexed_run_artifacts(
         ("ID", "STATUS", "BRANCH/LABEL", "CWD", "STARTED", "ENDED", "DURATION", "OUTPUT"),
         [_indexed_run_row(row) for row in rows],
     )
+
+
+def _output_root_for_list(*, base_dir: Path | None, output_dir: Path | None) -> Path:
+    if output_dir is not None:
+        return output_dir.expanduser().resolve(strict=False)
+    if base_dir is not None:
+        return output_root_for_base(base_dir).expanduser().resolve(strict=False)
+    return output_root_for_base().expanduser().resolve(strict=False)
 
 
 def _indexed_run_row(row: Mapping[str, object]) -> tuple[str, ...]:
@@ -323,6 +369,7 @@ def _finish_completed_cli_run(
     outcome: RunOutcome,
     *,
     exit_code: int,
+    results_root: Path | None = None,
 ) -> None:
     output_text = _outcome_output_text(outcome)
     summary_text = _outcome_summary_text(outcome, output_text)
@@ -331,7 +378,7 @@ def _finish_completed_cli_run(
     artifacts_dir = getattr(outcome, "output_dir", None)
     if isinstance(artifacts_dir, Path):
         extra["artifacts_dir"] = str(artifacts_dir)
-        _copy_text_artifacts(run_id, artifacts_dir)
+        _copy_text_artifacts(run_id, artifacts_dir, results_root=results_root)
     complete_run_record(
         run_id,
         status=status,
@@ -341,6 +388,7 @@ def _finish_completed_cli_run(
         stdout_text=run_console.export_text(),
         stderr_text="",
         extra=extra,
+        root=results_root,
     )
 
 
@@ -352,6 +400,7 @@ def _finish_failed_cli_run(
     *,
     exit_code: int,
     kind: str | None = None,
+    results_root: Path | None = None,
 ) -> None:
     error = exc.record.to_dict() if exc is not None else {"kind": kind or "error", "message": message}
     complete_run_record(
@@ -363,6 +412,7 @@ def _finish_failed_cli_run(
         stdout_text=run_console.export_text(),
         stderr_text=message + "\n",
         error=error,
+        root=results_root,
     )
 
 
@@ -417,8 +467,8 @@ def _outcome_summary_text(outcome: RunOutcome, fallback: str) -> str:
     return fallback
 
 
-def _copy_text_artifacts(run_id: str, artifacts_dir: Path) -> None:
-    stored_dir = run_directory(run_id)
+def _copy_text_artifacts(run_id: str, artifacts_dir: Path, *, results_root: Path | None = None) -> None:
+    stored_dir = run_directory(run_id, root=results_root)
     for name in ("manifest.json", "run-summary.json", "run-summary.md"):
         source = artifacts_dir / name
         if source.exists() and source.is_file():
@@ -524,6 +574,10 @@ def clean(
         Path | None,
         typer.Argument(help="Manifest file for generated run artifacts.", metavar="MANIFEST"),
     ] = None,
+    base_dir: Annotated[
+        Path | None,
+        typer.Option("--base-dir", help="Eval-feia base directory used with --results."),
+    ] = None,
     results: Annotated[
         bool,
         typer.Option("--results", help="Remove the configured stored-results history root."),
@@ -546,11 +600,14 @@ def clean(
         if force or delete_index:
             console.print("--force and --delete-index apply only to manifest cleanup", style="red")
             raise typer.Exit(2)
-        _clean_stored_results(dry_run=dry_run)
+        _clean_stored_results(base_dir=base_dir, dry_run=dry_run)
         return
 
     if manifest is None:
         console.print("MANIFEST is required unless --results is set", style="red")
+        raise typer.Exit(2)
+    if base_dir is not None:
+        console.print("--base-dir applies only with --results", style="red")
         raise typer.Exit(2)
 
     try:
@@ -569,9 +626,9 @@ def clean(
     _print_cleanup_result(cleanup_result, dry_run=dry_run)
 
 
-def _clean_stored_results(*, dry_run: bool) -> None:
+def _clean_stored_results(*, base_dir: Path | None, dry_run: bool) -> None:
     try:
-        cleanup_result = clean_results(dry_run=dry_run)
+        cleanup_result = clean_results(_results_base_for_cleanup(base_dir), dry_run=dry_run)
     except CleanupSafetyError as exc:
         console.print(f"cleanup safety check failed: {exc}", style="red")
         raise typer.Exit(5) from exc
@@ -579,6 +636,12 @@ def _clean_stored_results(*, dry_run: bool) -> None:
         console.print(f"cleanup failed: {exc}", style="red")
         raise typer.Exit(5) from exc
     _print_cleanup_result(cleanup_result, dry_run=dry_run)
+
+
+def _results_base_for_cleanup(base_dir: Path | None) -> Path | None:
+    if base_dir is None:
+        return None
+    return output_root_for_base(base_dir).expanduser().resolve(strict=False)
 
 
 app.add_typer(results_app, name="results")

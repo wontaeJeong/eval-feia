@@ -8,8 +8,8 @@ from typing import Any
 
 from rich.console import Console
 
-from .config import DEFAULT_OUTPUT_ROOT
 from .manifest import Manifest, load_manifest
+from .paths import OUTPUT_DIR_NAME, RUNS_DIR_NAME, output_root_for_base
 from .plain_table import print_plain_table
 
 
@@ -41,7 +41,7 @@ class SavedRun:
 
 
 def default_runs_root(base_dir: Path | None = None) -> Path:
-    root = DEFAULT_OUTPUT_ROOT.expanduser()
+    root = output_root_for_base().expanduser()
     if not root.is_absolute():
         root = (base_dir or Path.cwd()) / root
     return root.resolve(strict=False)
@@ -52,11 +52,27 @@ def list_saved_runs(*, output_root: Path | None = None, limit: int | None = None
     if not root.is_dir():
         return []
 
-    runs = [_read_run(run_dir) for run_dir in root.iterdir() if run_dir.is_dir()]
+    runs = [_read_run(run_dir) for run_dir in _iter_run_output_dirs(root)]
     runs.sort(key=lambda run: run._modified_timestamp, reverse=True)
     if limit is not None:
         return runs[:limit]
     return runs
+
+
+def _iter_run_output_dirs(root: Path) -> list[Path]:
+    run_dirs: list[Path] = []
+    for entry in root.iterdir():
+        if not entry.is_dir():
+            continue
+        if entry.name == RUNS_DIR_NAME:
+            run_dirs.extend(child for child in entry.iterdir() if child.is_dir())
+            continue
+        output_dir = entry / OUTPUT_DIR_NAME
+        if output_dir.is_dir():
+            run_dirs.append(output_dir)
+        else:
+            run_dirs.append(entry)
+    return run_dirs
 
 
 def print_saved_runs(console: Console, runs: list[SavedRun]) -> None:
