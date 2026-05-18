@@ -6,19 +6,36 @@ from pathlib import Path
 from typing import Any
 
 from .manifest import utc_now_iso
+from .paths import RESULTS_DIR_NAME, configured_base_root, results_dir_for_run
 
 
 RESULTS_DIR_ENV = "EVAL_FEIA_RESULTS_DIR"
 DEFAULT_RESULT_FILE = "output.txt"
 RESULTS_MARKER = ".eval-feia-results"
 RESULTS_MARKER_TEXT = "eval-feia results\n"
-RESULTS_OWNED_ENTRIES = frozenset({RESULTS_MARKER, "index.jsonl", "runs"})
+RESULTS_OWNED_ENTRIES = frozenset(
+    {
+        RESULTS_MARKER,
+        "index.jsonl",
+        "runs",
+        "metadata.json",
+        "output.txt",
+        "summary.txt",
+        "stdout.log",
+        "stderr.log",
+        "run.log",
+        "error.json",
+        "manifest.json",
+        "run-summary.json",
+        "run-summary.md",
+    }
+)
 
 
 def configured_results_root(root: Path | None = None) -> Path:
     if root is None:
         configured = os.environ.get(RESULTS_DIR_ENV)
-        root = Path(configured) if configured else Path.home() / ".eval-feia" / "results"
+        root = Path(configured) if configured else configured_base_root()
     return root.expanduser()
 
 
@@ -29,14 +46,19 @@ def resolve_results_root(root: Path | None = None) -> Path:
 def run_directory(run_id: str, root: Path | None = None) -> Path:
     _validate_run_id(run_id)
     root_path = resolve_results_root(root)
-    runs_root = root_path / "runs"
-    run_path = runs_root / run_id
-    if runs_root.is_symlink():
-        raise ValueError(f"results runs path is not a directory: {runs_root}")
+    if _uses_run_results_dir(run_id, root, root_path):
+        run_path = root_path if root_path.name == RESULTS_DIR_NAME else results_dir_for_run(run_id, root_path)
+        safety_root = run_path if root_path.name == RESULTS_DIR_NAME else root_path
+    else:
+        runs_root = root_path / "runs"
+        run_path = runs_root / run_id
+        safety_root = root_path
+        if runs_root.is_symlink():
+            raise ValueError(f"results runs path is not a directory: {runs_root}")
     if run_path.is_symlink():
         raise ValueError(f"stored run directory is a symlink: {run_path}")
     resolved = run_path.resolve(strict=False)
-    if not _is_relative_to(resolved, root_path):
+    if not _is_relative_to(resolved, safety_root):
         raise ValueError("stored run directory must stay inside the results root")
     return resolved
 
@@ -116,7 +138,12 @@ def load_metadata(run_id: str, root: Path | None = None) -> dict[str, Any]:
 
 def list_run_metadata(root: Path | None = None) -> list[dict[str, Any]]:
     resolved_root = resolve_results_root(root)
-    records = _read_index_records(resolved_root)
+    if _uses_base_results_layout(root):
+        records = _scan_base_metadata(resolved_root)
+    elif resolved_root.name == RESULTS_DIR_NAME and (resolved_root / "metadata.json").exists():
+        records = _scan_direct_results_metadata(resolved_root)
+    else:
+        records = _read_index_records(resolved_root)
     if records is None:
         records = _scan_metadata(resolved_root)
 
@@ -124,7 +151,7 @@ def list_run_metadata(root: Path | None = None) -> list[dict[str, Any]]:
     for record in records:
         run_id = record.get("run_id")
         if isinstance(run_id, str) and run_id:
-            if not (run_directory(run_id, resolved_root) / "metadata.json").exists():
+            if not _metadata_path_for_listed_run(run_id, root, resolved_root).exists():
                 continue
             latest[run_id] = record
     return sorted(
@@ -170,9 +197,19 @@ def _validate_run_id(run_id: str) -> None:
         raise ValueError("run_id must be a single path segment")
 
 
+def _uses_base_results_layout(root: Path | None) -> bool:
+    return root is None and not os.environ.get(RESULTS_DIR_ENV)
+
+
+def _uses_run_results_dir(run_id: str, root: Path | None, resolved_root: Path) -> bool:
+    if root is None:
+        return not os.environ.get(RESULTS_DIR_ENV)
+    return resolved_root.name == RESULTS_DIR_NAME and resolved_root.parent.name == run_id
+
+
 def _write_metadata(metadata: dict[str, Any], *, root: Path | None = None) -> None:
     run_id = str(metadata["run_id"])
-    _ensure_results_root(root)
+    _ensure_results_root(run_id, root)
     output_dir = run_directory(run_id, root)
     metadata = dict(metadata)
     metadata["output_dir"] = str(output_dir)
@@ -180,7 +217,8 @@ def _write_metadata(metadata: dict[str, Any], *, root: Path | None = None) -> No
 
 
 def _append_index(metadata: dict[str, Any], *, root: Path | None = None) -> None:
-    index_path = _ensure_results_root(root) / "index.jsonl"
+    run_id = str(metadata["run_id"])
+    index_path = _index_path_for_run(run_id, root)
     with index_path.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(metadata, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
         fh.write("\n")
@@ -188,16 +226,27 @@ def _append_index(metadata: dict[str, Any], *, root: Path | None = None) -> None
         os.fsync(fh.fileno())
 
 
-def _ensure_results_root(root: Path | None = None) -> Path:
+def _ensure_results_root(run_id: str, root: Path | None = None) -> Path:
     resolved_root = resolve_results_root(root)
-    if resolved_root.exists():
-        _validate_results_root_for_write(resolved_root)
+    if _uses_run_results_dir(run_id, root, resolved_root):
+        results_root = run_directory(run_id, root)
     else:
-        resolved_root.mkdir(parents=True)
-    marker = resolved_root / RESULTS_MARKER
+        results_root = resolved_root
+    if results_root.exists():
+        _validate_results_root_for_write(results_root)
+    else:
+        results_root.mkdir(parents=True)
+    marker = results_root / RESULTS_MARKER
     if not marker.exists():
         marker.write_text(RESULTS_MARKER_TEXT, encoding="utf-8")
-    return resolved_root
+    return results_root
+
+
+def _index_path_for_run(run_id: str, root: Path | None = None) -> Path:
+    resolved_root = resolve_results_root(root)
+    if _uses_run_results_dir(run_id, root, resolved_root):
+        return _ensure_results_root(run_id, root) / "index.jsonl"
+    return _ensure_results_root(run_id, root) / "index.jsonl"
 
 
 def _validate_results_root_for_write(root: Path) -> None:
@@ -256,6 +305,39 @@ def _scan_metadata(root: Path) -> list[dict[str, Any]]:
         if isinstance(record, dict):
             records.append(record)
     return records
+
+
+def _scan_base_metadata(root: Path) -> list[dict[str, Any]]:
+    if not root.exists():
+        return []
+    records: list[dict[str, Any]] = []
+    for metadata_path in sorted(root.glob(f"*/{RESULTS_DIR_NAME}/metadata.json")):
+        try:
+            with metadata_path.open("r", encoding="utf-8") as fh:
+                record = json.load(fh)
+        except (OSError, json.JSONDecodeError):
+            continue
+        if isinstance(record, dict):
+            records.append(record)
+    return records
+
+
+def _scan_direct_results_metadata(root: Path) -> list[dict[str, Any]]:
+    metadata_path = root / "metadata.json"
+    try:
+        with metadata_path.open("r", encoding="utf-8") as fh:
+            record = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return []
+    return [record] if isinstance(record, dict) else []
+
+
+def _metadata_path_for_listed_run(run_id: str, root: Path | None, resolved_root: Path) -> Path:
+    if _uses_base_results_layout(root):
+        return results_dir_for_run(run_id, resolved_root) / "metadata.json"
+    if resolved_root.name == RESULTS_DIR_NAME and resolved_root.parent.name == run_id:
+        return resolved_root / "metadata.json"
+    return run_directory(run_id, resolved_root) / "metadata.json"
 
 
 def _write_text(path: Path, value: str) -> None:

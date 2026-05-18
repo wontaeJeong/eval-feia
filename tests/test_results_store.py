@@ -20,9 +20,15 @@ def test_results_root_uses_home_default_and_env_override(monkeypatch, tmp_path: 
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("EVAL_FEIA_BASE_DIR", raising=False)
     monkeypatch.delenv("EVAL_FEIA_RESULTS_DIR", raising=False)
 
-    assert resolve_results_root() == (home / ".eval-feia" / "results").resolve(strict=False)
+    assert resolve_results_root() == (home / ".eval-feia").resolve(strict=False)
+
+    base = tmp_path / "state"
+    monkeypatch.setenv("EVAL_FEIA_BASE_DIR", str(base))
+
+    assert resolve_results_root() == base.resolve(strict=False)
 
     override = tmp_path / "custom-results"
     monkeypatch.setenv("EVAL_FEIA_RESULTS_DIR", str(override))
