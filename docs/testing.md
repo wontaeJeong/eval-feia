@@ -57,6 +57,7 @@ Verify:
 - SQLite schema version 1 creates `runs` and `run_events`
 - SQLite list filters support status, branch, and label
 - saved artifact listing backfills an empty SQLite index idempotently
+- `--base-dir` and `EVAL_FEIA_BASE_DIR` derive per-run output, worktrees, results, and default SQLite paths from one base
 - `clean` requires generated-root markers and marks deleted generated outputs as missing in SQLite metadata
 - `clean --delete-index` deletes only the manifest-recorded default DB and rejects custom `EVAL_FEIA_DB_PATH`
 
@@ -115,9 +116,11 @@ eval-feia results list
 
 eval-feia results show <run-id>
 
-eval-feia clean .eval-feia/runs/<run-id>/manifest.json --dry-run
+eval-feia clean ~/.eval-feia/<run-id>/output/manifest.json --dry-run
 
-eval-feia clean .eval-feia/runs/<run-id>/manifest.json --delete-index --dry-run
+eval-feia clean ~/.eval-feia/<run-id>/output/manifest.json --delete-index --dry-run
 
 eval-feia clean --results --dry-run
+
+eval-feia clean --results --base-dir ./eval-state --dry-run
 ```

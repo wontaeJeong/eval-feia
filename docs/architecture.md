@@ -69,7 +69,7 @@ Writes machine-readable result files and human-readable markdown summaries. Prin
 
 ### Stored results store
 
-Writes durable run metadata, output, summary, and log files under `EVAL_FEIA_RESULTS_DIR` or `$HOME/.eval-feia/results`. Powers the read-only stored-result inspection commands.
+Writes durable run metadata, output, summary, and log files under `<base>/<run-id>/results` or `EVAL_FEIA_RESULTS_DIR`. Powers the read-only stored-result inspection commands.
 
 ### SQLite metadata index
 
@@ -122,8 +122,8 @@ Recommended output layout:
 
 ```text
 .eval-feia/
-  runs/
-    20260514-123456-a1b2c3/
+  20260514-123456-a1b2c3/
+    output/
       manifest.json
       run-summary.md
       run-summary.json
@@ -142,14 +142,22 @@ Recommended output layout:
           error.json
         cand-002/
           ...
+    worktrees/
+      cand-001/
+      cand-002/
+    results/
+      index.jsonl
+      metadata.json
+      output.txt
+  eval-feia.sqlite3
 ```
 
-Generated worktrees use the matching compact layout:
+Generated worktrees use the matching compact per-run layout:
 
 ```text
 .eval-feia/
-  worktrees/
-    20260514-123456-a1b2c3/
+  20260514-123456-a1b2c3/
+    worktrees/
       cand-001/
       cand-002/
 ```
@@ -182,6 +190,6 @@ The tool must be conservative with destructive actions:
 - never delete stored result history unless `clean --results` is explicitly used and the target is a validated eval-feia results root
 - never delete the SQLite metadata index unless `clean --delete-index` is explicitly used with a manifest that records the default DB path
 - never delete the repository root
-- never delete outside the configured workspace/output root unless the manifest explicitly says it is a generated git worktree
+- never delete outside the configured eval-feia base unless the manifest explicitly says it is a generated git worktree
 - never kill `opencode serve`
 - never print auth headers or provider credentials

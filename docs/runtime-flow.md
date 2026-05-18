@@ -3,7 +3,7 @@
 ## Preflight
 
 1. Build runtime config from CLI arguments.
-2. Resolve repo path, prompt path, generated artifact output root, worktree root, stored result root, and SQLite DB path.
+2. Resolve repo path, prompt path, eval-feia base, generated artifact output root, worktree root, stored result root, and SQLite DB path.
 3. Check git repository.
 4. Check base ref.
 5. Read prompt file.
@@ -17,7 +17,7 @@ GET /global/health
 
 ```text
 Run ID: <run-id>
-Output directory: /home/user/.eval-feia/results/runs/<run-id>
+Output directory: /home/user/.eval-feia/<run-id>/results
 ```
 
 7. Print health and run context:
@@ -52,10 +52,10 @@ Print created worktrees as a compact CLI table:
 
 ```text
 #  WORKTREE
-1  /abs/path/.eval-feia/worktrees/<run-id>/command-body-test
+1  /home/user/.eval-feia/<run-id>/worktrees/command-body-test
 ```
 
-Record each worktree and its actual branch name in `manifest.json` as soon as it is created. Generated artifact and worktree roots include eval-feia marker files that `clean` validates before deleting root directories. When the SQLite DB path is the default database under the generated artifact root, record that DB path in the manifest for `clean --delete-index`.
+Record each worktree and its actual branch name in `manifest.json` as soon as it is created. Generated artifact and worktree roots include eval-feia marker files that `clean` validates before deleting root directories. When the SQLite DB path is the default database under the eval-feia base, record that DB path in the manifest for `clean --delete-index`.
 
 ## Candidate execution
 

@@ -28,7 +28,7 @@ dependencies = [
 
 ## Phase 1: Runtime models and manifest
 
-Implemented typed runtime configuration, manifest schemas, path resolution, generated branch/worktree metadata, run labels, and JSON serialization. Manifests now include the default SQLite DB path when that DB is owned by the generated output root.
+Implemented typed runtime configuration, manifest schemas, path resolution, generated branch/worktree metadata, run labels, and JSON serialization. Manifests now include the default SQLite DB path when that DB is owned by the eval-feia base.
 
 ## Phase 2: Opencode REST client
 
