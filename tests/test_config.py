@@ -36,6 +36,37 @@ def test_build_config_maps_cli_inputs_and_resolves_paths(tmp_path: Path) -> None
     assert config.run.output_root == output_dir.resolve(strict=False)
 
 
+def test_build_config_derives_run_and_worktree_roots_from_base_dir(tmp_path: Path) -> None:
+    base_dir = tmp_path / "state"
+
+    config = build_config(prompt="hello", base_root=Path("state"), base_dir=tmp_path)
+
+    assert config.run.output_root == base_dir.resolve(strict=False)
+    assert config.repo.worktree_root == base_dir.resolve(strict=False)
+
+
+def test_default_roots_follow_base_dir_environment(monkeypatch, tmp_path: Path) -> None:
+    base_dir = tmp_path / "state"
+    monkeypatch.setenv("EVAL_FEIA_BASE_DIR", str(base_dir))
+
+    config = build_config(prompt="hello", base_dir=tmp_path)
+
+    assert config.run.output_root == base_dir.resolve(strict=False)
+    assert config.repo.worktree_root == base_dir.resolve(strict=False)
+
+
+def test_default_roots_use_home_base(monkeypatch, tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("EVAL_FEIA_BASE_DIR", raising=False)
+
+    config = build_config(prompt="hello", base_dir=tmp_path)
+
+    assert config.run.output_root == (home / ".eval-feia").resolve(strict=False)
+    assert config.repo.worktree_root == (home / ".eval-feia").resolve(strict=False)
+
+
 def test_build_config_accepts_inline_prompt(tmp_path: Path) -> None:
     config = build_config(prompt="hello from cli", base_dir=tmp_path)
 

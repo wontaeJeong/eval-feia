@@ -8,9 +8,16 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .errors import ConfigError
+from .paths import (
+    DEFAULT_BASE_ROOT,
+    configured_base_root,
+    output_root_for_base,
+    worktree_root_for_base,
+)
 
 
-DEFAULT_OUTPUT_ROOT = Path(".eval-feia/runs")
+DEFAULT_OUTPUT_ROOT = DEFAULT_BASE_ROOT
+DEFAULT_WORKTREE_ROOT = DEFAULT_BASE_ROOT
 
 
 class ServerConfig(BaseModel):
@@ -47,7 +54,7 @@ class RepoConfig(BaseModel):
 
     path: Path = Path(".")
     base_ref: str = "HEAD"
-    worktree_root: Path = Path(".eval-feia/worktrees")
+    worktree_root: Path = DEFAULT_WORKTREE_ROOT
 
 
 class ModelConfig(BaseModel):
@@ -173,8 +180,11 @@ def build_config(
     label: str | None = None,
     command: str | None = None,
     output_dir: Path | None = None,
+    base_root: Path | None = None,
     base_dir: Path | None = None,
 ) -> EvalConfig:
+    if output_dir is not None and base_root is not None:
+        raise ConfigError("--base-dir and --output-dir cannot be used together")
     raw: dict[str, Any] = {"run": {}}
     _set_nested(raw, "server", "url", server_url)
     _set_nested(raw, "repo", "path", repo)
@@ -184,7 +194,12 @@ def build_config(
     _set_nested(raw, "run", "prompt_file", prompt_file)
     _set_nested(raw, "run", "label", label)
     _set_nested(raw, "run", "command", command)
-    _set_nested(raw, "run", "output_root", output_dir)
+    if base_root is not None:
+        effective_base_root = _resolve_path(base_root, base_dir or Path.cwd())
+        _set_nested(raw, "repo", "worktree_root", worktree_root_for_base(effective_base_root))
+        _set_nested(raw, "run", "output_root", output_root_for_base(effective_base_root))
+    else:
+        _set_nested(raw, "run", "output_root", output_dir)
     try:
         config = EvalConfig.model_validate(raw)
     except Exception as exc:  # pydantic includes detailed validation text
@@ -199,9 +214,16 @@ def _set_nested(data: dict[str, Any], section: str, key: str, value: Any | None)
 
 def resolve_config_paths(config: EvalConfig, base_dir: Path | None = None) -> EvalConfig:
     root = base_dir or Path.cwd()
+    default_base = _resolve_path(configured_base_root(), root)
     config.repo.path = _resolve_path(config.repo.path, root)
-    config.repo.worktree_root = _resolve_path(config.repo.worktree_root, root)
-    config.run.output_root = _resolve_path(config.run.output_root, root)
+    if config.repo.worktree_root == DEFAULT_WORKTREE_ROOT:
+        config.repo.worktree_root = worktree_root_for_base(default_base).resolve(strict=False)
+    else:
+        config.repo.worktree_root = _resolve_path(config.repo.worktree_root, root)
+    if config.run.output_root == DEFAULT_OUTPUT_ROOT:
+        config.run.output_root = output_root_for_base(default_base).resolve(strict=False)
+    else:
+        config.run.output_root = _resolve_path(config.run.output_root, root)
     if config.run.prompt_file is not None:
         config.run.prompt_file = _resolve_path(config.run.prompt_file, root)
     for item in config.evals:
