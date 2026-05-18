@@ -24,7 +24,7 @@ from eval_feia.manifest import (
     write_manifest,
 )
 from eval_feia.results_store import complete_run_record, start_run_record
-from eval_feia.storage import create_run, db_path_for_output_root, default_db_path, list_runs
+from eval_feia.storage import DB_FILENAME, create_run, db_path_for_output_root, default_db_path, list_runs
 from tests.helpers import init_git_repo
 
 
@@ -113,6 +113,23 @@ def test_clean_db_uses_manifest_recorded_default_database(tmp_path: Path) -> Non
 
     assert result.actions[-1].kind == "database"
     assert result.actions[-1].path == db_path_for_output_root(manifest.output_dir.parent)
+
+
+def test_clean_db_accepts_legacy_output_root_database(tmp_path: Path) -> None:
+    manifest = _manifest(tmp_path)
+    legacy_db_path = manifest.output_dir.parent / DB_FILENAME
+    manifest.db_path = legacy_db_path
+    manifest.output_dir.mkdir(parents=True)
+    manifest.worktree_root.mkdir(parents=True)
+    manifest.candidates[0].worktree_path.mkdir(parents=True)
+    manifest.candidates[0].result_dir.mkdir(parents=True)
+    _mark_generated_roots(manifest)
+    manifest_path = write_manifest(manifest)
+
+    result = clean_resources(manifest_path, dry_run=True, remove_db=True, use_git=False)
+
+    assert result.actions[-1].kind == "database"
+    assert result.actions[-1].path == legacy_db_path.resolve(strict=False)
 
 
 def test_clean_refuses_manifest_outside_output_dir(tmp_path: Path) -> None:

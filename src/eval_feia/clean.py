@@ -7,6 +7,7 @@ from pathlib import Path
 from .errors import CleanupSafetyError
 from .git_worktree import GitWorktreeManager
 from .manifest import Manifest, load_manifest
+from .paths import OUTPUT_DIR_NAME, RESULTS_DIR_NAME, WORKTREES_DIR_NAME
 from .results_store import (
     RESULTS_MARKER,
     RESULTS_MARKER_TEXT,
@@ -15,6 +16,7 @@ from .results_store import (
 )
 from .storage import (
     DB_ENV_VAR,
+    DB_FILENAME,
     db_path_for_output_root,
     default_db_path,
     delete_db,
@@ -68,19 +70,21 @@ def clean_resources(
 ) -> CleanupResult:
     manifest = load_manifest(manifest_path)
     actions = plan_cleanup(manifest, manifest_path)
-    db_path = default_db_path(manifest.output_dir.parent)
+    output_root = _output_root_for_manifest(manifest)
+    db_path = _db_path_for_manifest_index(manifest, output_root)
     if remove_db:
-        safe_db_path = db_path_for_output_root(manifest.output_dir.parent)
-        if db_path != safe_db_path:
+        safe_db_paths = _safe_default_db_paths(output_root)
+        current_default_db_path = default_db_path(output_root)
+        if current_default_db_path not in safe_db_paths:
             raise CleanupSafetyError(
                 f"refusing to delete {DB_ENV_VAR} override from clean --delete-index; "
-                f"delete it manually if intended: {db_path}"
+                f"delete it manually if intended: {current_default_db_path}"
             )
         if manifest.db_path is None:
             raise CleanupSafetyError("manifest does not record a SQLite database path")
         recorded_db_path = manifest.db_path.expanduser().resolve(strict=False)
-        if recorded_db_path != safe_db_path:
-            raise CleanupSafetyError("manifest SQLite database path must match the output root database")
+        if recorded_db_path not in safe_db_paths:
+            raise CleanupSafetyError("manifest SQLite database path must match the eval-feia base database")
         actions.append(CleanupAction("database", recorded_db_path))
     errors: list[str] = []
     warnings: list[str] = []
@@ -108,12 +112,47 @@ def clean_resources(
     return CleanupResult(actions, errors, dry_run=False, warnings=warnings)
 
 
+def _db_path_for_manifest_index(manifest: Manifest, output_root: Path) -> Path:
+    configured_path = default_db_path(output_root)
+    if configured_path not in _safe_default_db_paths(output_root):
+        return configured_path
+    if manifest.db_path is None:
+        return configured_path
+    recorded_db_path = manifest.db_path.expanduser().resolve(strict=False)
+    if recorded_db_path in _safe_default_db_paths(output_root):
+        return recorded_db_path
+    return configured_path
+
+
+def _output_root_for_manifest(manifest: Manifest) -> Path:
+    output_dir = manifest.output_dir.expanduser().resolve(strict=False)
+    if output_dir.name == OUTPUT_DIR_NAME and output_dir.parent.name == manifest.run_id:
+        return output_dir.parent.parent
+    return output_dir.parent
+
+
+def _safe_default_db_paths(output_root: Path) -> set[Path]:
+    resolved_output_root = output_root.expanduser().resolve(strict=False)
+    return {
+        db_path_for_output_root(output_root),
+        resolved_output_root / DB_FILENAME,
+    }
+
+
 def plan_results_cleanup(results_root: Path | None = None) -> list[CleanupAction]:
     raw_root = configured_results_root(results_root)
     _validate_no_symlink_components(raw_root)
     root = raw_root.resolve(strict=False)
-    _validate_results_root(root)
-    return [CleanupAction("results", root)]
+    if not root.exists() or (root / RESULTS_MARKER).exists():
+        _validate_results_root(root)
+        return [CleanupAction("results", root)]
+    actions: list[CleanupAction] = []
+    for candidate in sorted(root.glob(f"*/{RESULTS_DIR_NAME}")):
+        _validate_results_root(candidate.resolve(strict=False))
+        actions.append(CleanupAction("results", candidate.resolve(strict=False)))
+    if not actions:
+        _validate_results_root(root)
+    return actions
 
 
 def clean_results(
@@ -160,10 +199,10 @@ def _validate_manifest_roots(manifest: Manifest, manifest_path: Path | None) -> 
     worktree_root = _safe_resolved_path(manifest.worktree_root, manifest.repo.path)
     for root in (output_dir, worktree_root):
         _validate_basic_path(root, repo_root)
-    if output_dir.name != manifest.run_id:
-        raise CleanupSafetyError("manifest output_dir must be the run_id directory")
-    if worktree_root.name != manifest.run_id:
-        raise CleanupSafetyError("manifest worktree_root must be the run_id directory")
+    if not _is_valid_output_dir(manifest.run_id, output_dir):
+        raise CleanupSafetyError("manifest output_dir must be the run output directory")
+    if not _is_valid_worktree_root(manifest.run_id, worktree_root):
+        raise CleanupSafetyError("manifest worktree_root must be the run worktrees directory")
     if output_dir == worktree_root or _is_relative_to(output_dir, worktree_root) or _is_relative_to(
         worktree_root, output_dir
     ):
@@ -178,6 +217,18 @@ def _validate_manifest_roots(manifest: Manifest, manifest_path: Path | None) -> 
         actual_manifest = manifest_path.expanduser().resolve(strict=False)
         if actual_manifest != expected_manifest:
             raise CleanupSafetyError("manifest file must be located at output_dir/manifest.json")
+
+
+def _is_valid_output_dir(run_id: str, output_dir: Path) -> bool:
+    return output_dir.name == run_id or (
+        output_dir.name == OUTPUT_DIR_NAME and output_dir.parent.name == run_id
+    )
+
+
+def _is_valid_worktree_root(run_id: str, worktree_root: Path) -> bool:
+    return worktree_root.name == run_id or (
+        worktree_root.name == WORKTREES_DIR_NAME and worktree_root.parent.name == run_id
+    )
 
 
 def write_generated_marker(root: Path) -> None:
