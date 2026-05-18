@@ -7,8 +7,10 @@ The server lifecycle stays external: start `opencode serve` yourself, then run e
 ```bash
 eval-feia run "Fix the issue described in README" --repo . --branch HEAD --attempts 1
 eval-feia run --prompt-file examples/prompt.md --repo . --command bash
+eval-feia run "..." --base-dir ./eval-state
 
 eval-feia list --limit 5
+eval-feia list --base-dir ./eval-state
 eval-feia list --output-dir ./custom-runs
 eval-feia list --json
 EVAL_FEIA_DB_PATH=/tmp/eval-feia.sqlite3 eval-feia list --json
@@ -19,16 +21,16 @@ eval-feia results show <run-id>
 eval-feia results path <run-id>
 eval-feia results file <run-id> output.txt
 
-eval-feia clean .eval-feia/runs/<run-id>/manifest.json
-eval-feia clean .eval-feia/runs/<run-id>/manifest.json --delete-index
+eval-feia clean ~/.eval-feia/<run-id>/output/manifest.json
+eval-feia clean ~/.eval-feia/<run-id>/output/manifest.json --delete-index
 eval-feia clean --results --dry-run
 ```
 
-Each `run` writes generated run artifacts under `.eval-feia/runs/<run-id>` by default. It also writes a durable result record under `$HOME/.eval-feia/results/runs/<run-id>` and appends `$HOME/.eval-feia/results/index.jsonl`. Set `EVAL_FEIA_RESULTS_DIR` to use a different durable results root.
+All default eval-feia state is derived from one base directory under the home directory. The base defaults to `$HOME/.eval-feia`, or `EVAL_FEIA_BASE_DIR` when set. Each `run` writes generated run artifacts under `<base>/<run-id>/output`, generated worktrees under `<base>/<run-id>/worktrees`, and durable result records under `<base>/<run-id>/results`. Set `EVAL_FEIA_RESULTS_DIR` only when you intentionally want durable results outside that per-run base layout.
 
-SQLite is used as a local metadata index for querying run IDs, status, labels, paths, timing, and summary locations; large stdout/stderr logs stay in files. By default the database is `<output-root>/eval-feia.sqlite3`, which is `.eval-feia/runs/eval-feia.sqlite3` for the default output root. Override it with `EVAL_FEIA_DB_PATH`.
+SQLite is used as a local metadata index for querying run IDs, status, labels, paths, timing, and summary locations; large stdout/stderr logs stay in files. By default the database is `<base>/eval-feia.sqlite3`. Override it with `EVAL_FEIA_DB_PATH`.
 
-`clean` with a manifest keeps stored results and SQLite records by default. Use `clean --results` only when you intentionally want to remove the stored results root. Use `clean --delete-index` with a manifest only when you also want to delete the default SQLite index database under that output root; custom `EVAL_FEIA_DB_PATH` databases must be removed manually.
+`clean` with a manifest keeps stored results and SQLite records by default. Use `clean --results` only when you intentionally want to remove the stored results root. Use `clean --delete-index` with a manifest only when you also want to delete the manifest-recorded default SQLite index database under the eval-feia base; custom `EVAL_FEIA_DB_PATH` databases must be removed manually.
 
 A run can define one human-readable label used in run-level logs and summaries:
 
@@ -38,14 +40,14 @@ eval-feia run "..." --label "command body test"
 
 Generated worktrees are grouped by run ID and candidate ID, while the created Git branch names include the run ID to avoid cross-run collisions. `result.json` / `run-summary.json` record the created branch, base ref, and base SHA.
 
-Use `eval-feia list` to inspect generated run artifacts under the configured run output root before choosing a manifest for `clean`:
+Use `eval-feia list` to inspect generated run artifacts under `<base>/<run-id>/output` before choosing a manifest for `clean`:
 
 ```text
 RUN                      CREATED                    MODIFIED                   LABEL       BRANCH                         OUTPUT                         RESULT
-20260514-123456-a1b2c3   2026-05-14T12:34:56+09:00 2026-05-14T12:40:00+09:00 command run eval/20260514-a1b2/cand-001 /repo/.eval-feia/runs/...     /repo/.eval-feia/runs/.../run-summary.json
+20260514-123456-a1b2c3   2026-05-14T12:34:56+09:00 2026-05-14T12:40:00+09:00 command run eval/20260514-a1b2/cand-001 /home/user/.eval-feia/20260514-123456-a1b2c3/output     /home/user/.eval-feia/20260514-123456-a1b2c3/output/run-summary.json
 ```
 
-`--output-dir <path>` inspects a custom run output root, `--limit <n>` shows only the most recent runs, and `--json` prints the same list as a JSON array. When `EVAL_FEIA_DB_PATH` or SQLite filters are used, `list` reads the local SQLite metadata index instead.
+`--base-dir <path>` inspects `<path>/<run-id>/output`; `--output-dir <path>` inspects a custom run output root; `--limit <n>` shows only the most recent runs, and `--json` prints the same list as a JSON array. When `EVAL_FEIA_DB_PATH` or SQLite filters are used, `list` reads the local SQLite metadata index instead.
 
 ## Install For Development
 

@@ -14,8 +14,8 @@ Build a local CLI tool that:
 2. Runs the same evaluation prompt against each worktree through an existing `opencode serve` HTTP endpoint.
 3. Ensures each opencode request is scoped to the correct worktree directory.
 4. Collects messages, session metadata, child sessions, todo state, diffs, file status, validation logs, and final assistant output.
-5. Writes structured run artifacts under the configured output root.
-6. Writes durable stored result history under `EVAL_FEIA_RESULTS_DIR` or `$HOME/.eval-feia/results`.
+5. Writes structured run artifacts under the configured eval-feia base's `runs/` root.
+6. Writes durable stored result history under the same base's `results/` root unless `EVAL_FEIA_RESULTS_DIR` intentionally overrides it.
 7. Indexes run metadata in a local SQLite database for filtered listing.
 8. Prints a final result summary automatically at the end of `run`.
 9. Lists generated run artifacts through the read-only `list` command.
@@ -65,6 +65,7 @@ eval-feia run --prompt-file prompt.md --repo . --branch HEAD --attempts 1
 ```bash
 eval-feia list
 eval-feia list --limit 5
+eval-feia list --base-dir ./eval-state
 eval-feia list --output-dir ./custom-runs
 EVAL_FEIA_DB_PATH=/tmp/eval-feia.sqlite3 eval-feia list --json
 eval-feia list --status success --branch HEAD
@@ -82,8 +83,8 @@ eval-feia results file <run-id> output.txt
 7. User optionally removes generated resources:
 
 ```bash
-eval-feia clean .eval-feia/runs/<run-id>/manifest.json
-eval-feia clean .eval-feia/runs/<run-id>/manifest.json --delete-index
+eval-feia clean ~/.eval-feia/<run-id>/output/manifest.json
+eval-feia clean ~/.eval-feia/<run-id>/output/manifest.json --delete-index
 eval-feia clean --results
 ```
 
@@ -95,7 +96,7 @@ eval-feia clean --results
 
 ### `list`
 
-`list` prints generated run artifacts from the run output root by default, including custom roots passed with `--output-dir`. The command is read-only and tolerates missing or partial metadata.
+`list` prints generated run artifacts from `<base>/<run-id>/output` by default, including custom bases passed with `--base-dir` and custom output roots passed with `--output-dir`. The command is read-only and tolerates missing or partial metadata.
 
 When `EVAL_FEIA_DB_PATH` is set or `--status`, `--branch`, or `--label` is provided, `list` reads the local SQLite metadata index instead and can backfill it from existing file outputs.
 
@@ -103,7 +104,7 @@ When `EVAL_FEIA_DB_PATH` is set or `--status`, `--branch`, or `--label` is provi
 
 `clean <manifest>` removes generated worktrees and result artifacts recorded in a manifest. It never kills `opencode serve` and never removes durable stored result history.
 
-`clean <manifest> --delete-index` deletes only the manifest-recorded default SQLite database under the generated output root. Custom `EVAL_FEIA_DB_PATH` databases are never deleted automatically. `clean --results` removes the validated durable stored-results root.
+`clean <manifest> --delete-index` deletes only the manifest-recorded default SQLite database under the eval-feia base. Custom `EVAL_FEIA_DB_PATH` databases are never deleted automatically. `clean --results` removes the validated durable stored-results root.
 
 ### `results` subcommands
 
@@ -121,8 +122,8 @@ A run is acceptable when all of the following are true:
 - The tool waits until each execution is complete or times out.
 - The tool collects messages, session info, children, todo state, diff, file status, and local git diff.
 - The console output includes the stored result directory before execution and a final plain summary table after execution.
-- Generated artifacts are written under the configured output root.
-- Durable stored results are written under the configured results root.
+- Generated artifacts are written under the configured eval-feia base's `runs/` root.
+- Durable stored results are written under the same base's `results/` root unless explicitly overridden.
 - SQLite run metadata is recorded when the index can be opened; index failures are surfaced as warnings during `run` and exit code `6` during indexed `list`.
 - `list` works for generated run artifacts and SQLite filters.
 - `results` inspection subcommands work without contacting opencode.

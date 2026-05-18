@@ -14,14 +14,14 @@ The MVP CLI is arguments-only. It does not load YAML, JSON, or TOML config files
 - `--attempts N`: number of candidates to run. Defaults to `1`.
 - `--label TEXT`: run-level human-readable label used in logs, stored results, summaries, and indexed listings.
 - `--command NAME`: optional opencode slash command. A leading slash is accepted and stripped before sending the HTTP request body.
-- `--output-dir PATH`: generated run artifact root. Defaults to `.eval-feia/runs`; `list` accepts the same flag to inspect custom run roots.
+- `--base-dir PATH`: eval-feia state base. `output/`, `worktrees/`, `results/`, and the default SQLite DB are derived from it per run.
+- `--output-dir PATH`: generated run artifact base. Defaults to `<base>` and writes each run under `<base>/<run-id>/output`; `list` accepts the same flag to inspect custom roots. It cannot be combined with `--base-dir`.
 
 ## Environment Inputs
 
-Stored result records are separate from generated run artifacts. They default to
-`$HOME/.eval-feia/results` and can be overridden with `EVAL_FEIA_RESULTS_DIR`.
+`EVAL_FEIA_BASE_DIR` sets the shared eval-feia state base. When unset, the base defaults to `$HOME/.eval-feia`. Stored result records default to `<base>/<run-id>/results` and can be overridden with `EVAL_FEIA_RESULTS_DIR` when durable results must intentionally live outside the per-run base layout.
 
-The SQLite metadata index defaults to `<output-root>/eval-feia.sqlite3`, where `<output-root>` is the generated artifact root. Set `EVAL_FEIA_DB_PATH` to use a custom database path. Custom DB paths are used for indexing and listing but are not deleted by `clean --delete-index`.
+The SQLite metadata index defaults to `<base>/eval-feia.sqlite3`. Set `EVAL_FEIA_DB_PATH` to use a custom database path. Custom DB paths are used for indexing and listing but are not deleted by `clean --delete-index`.
 
 ## Listing Configuration
 
@@ -31,7 +31,7 @@ The SQLite metadata index defaults to `<output-root>/eval-feia.sqlite3`, where `
 - `--branch REF`
 - `--label TEXT`
 
-`--limit`, `--output-dir`, and `--json` apply to both listing modes.
+`--limit`, `--base-dir`, `--output-dir`, and `--json` apply to both listing modes.
 
 ## Internal Model
 

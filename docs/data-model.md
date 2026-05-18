@@ -2,8 +2,7 @@
 
 ## Stored result metadata
 
-Each CLI `run` writes a durable record under `$HOME/.eval-feia/results` or
-`EVAL_FEIA_RESULTS_DIR`:
+Each CLI `run` derives state from one eval-feia base directory under the home directory. The base defaults to `$HOME/.eval-feia`, or `EVAL_FEIA_BASE_DIR` when set. Durable records are written under `<base>/<run-id>/results`, unless `EVAL_FEIA_RESULTS_DIR` intentionally overrides only the results root:
 
 ```text
 results/
@@ -27,7 +26,7 @@ results/
   "finished_at": "2026-05-17T14:31:00+09:00",
   "status": "success",
   "cwd": "/abs/path/repo",
-  "output_dir": "/home/user/.eval-feia/results/runs/20260517-143012-a1b2c3",
+  "output_dir": "/home/user/.eval-feia/20260517-143012-a1b2c3/results",
   "branch": "HEAD",
   "label": "smoke",
   "command": null,
@@ -56,17 +55,17 @@ The log files are local debugging artifacts and may contain command output or er
     "url": "http://127.0.0.1:4096",
     "version": "1.x.x"
   },
-  "output_dir": "/abs/path/repo/.eval-feia/runs/20260514-123456-a1b2c3",
-  "worktree_root": "/abs/path/repo/.eval-feia/worktrees/20260514-123456-a1b2c3",
-  "db_path": "/abs/path/repo/.eval-feia/runs/eval-feia.sqlite3",
+  "output_dir": "/home/user/.eval-feia/20260514-123456-a1b2c3/output",
+  "worktree_root": "/home/user/.eval-feia/20260514-123456-a1b2c3/worktrees",
+  "db_path": "/home/user/.eval-feia/eval-feia.sqlite3",
   "candidates": [
     {
       "id": "command-body-test",
       "eval_id": null,
       "requested_branch_name": null,
       "branch_name": "eval/20260514-123456-a1b2c3/command-body-test",
-      "worktree_path": "/abs/path/repo/.eval-feia/worktrees/20260514-123456-a1b2c3/command-body-test",
-      "result_dir": "/abs/path/repo/.eval-feia/runs/20260514-123456-a1b2c3/candidates/command-body-test",
+      "worktree_path": "/home/user/.eval-feia/20260514-123456-a1b2c3/worktrees/command-body-test",
+      "result_dir": "/home/user/.eval-feia/20260514-123456-a1b2c3/output/candidates/command-body-test",
       "session_id": "ses_...",
       "status": "completed"
     }
@@ -176,12 +175,9 @@ unexpected_error
 ## SQLite metadata index
 
 Generated artifact files and durable stored-result files remain authoritative. The local SQLite database is a query index stored at
-`<output-root>/eval-feia.sqlite3` by default, or at `EVAL_FEIA_DB_PATH` when that
-environment variable is set.
+`<base>/eval-feia.sqlite3` by default, or at `EVAL_FEIA_DB_PATH` when that environment variable is set.
 
-Default DB paths are recorded in new run manifests so `clean --delete-index` can delete them through
-the same manifest validation flow. Custom `EVAL_FEIA_DB_PATH` databases are not deleted by
-`clean --delete-index`; remove them manually when needed.
+Default DB paths are recorded in new run manifests so `clean --delete-index` can delete them through the same manifest validation flow. Custom `EVAL_FEIA_DB_PATH` databases are not deleted by `clean --delete-index`; remove them manually when needed.
 
 Schema versioning uses `PRAGMA user_version`. Version 1 contains:
 

@@ -13,7 +13,7 @@ eval-feia run "Fix the failing tests" --repo . --branch HEAD --attempts 1
 Use `--prompt-file` when the prompt is stored on disk:
 
 ```bash
-eval-feia run --prompt-file ./prompt.md --repo . --branch HEAD --attempts 3 --command bash --output-dir ./.eval-feia/runs
+eval-feia run --prompt-file ./prompt.md --repo . --branch HEAD --attempts 3 --command bash --base-dir ./.eval-feia
 ```
 
 For a one-off eval, inline prompt, branch, and a run-level label can be supplied directly:
@@ -28,10 +28,10 @@ At startup `run` prints the stored result location:
 
 ```text
 Run ID: 20260517-143012-a1b2c3
-Output directory: /home/user/.eval-feia/results/runs/20260517-143012-a1b2c3
+Output directory: /home/user/.eval-feia/20260517-143012-a1b2c3/results
 ```
 
-Stored results default to `$HOME/.eval-feia/results`. Set `EVAL_FEIA_RESULTS_DIR` to override that root. The SQLite metadata index defaults to `<output-root>/eval-feia.sqlite3`; set `EVAL_FEIA_DB_PATH` to override that database path.
+Runs, worktrees, stored results, and the default SQLite index share one base directory under the home directory. The base defaults to `$HOME/.eval-feia`, can be set with `EVAL_FEIA_BASE_DIR`, and can be overridden for a run with `--base-dir`. A run stores generated artifacts in `<base>/<run-id>/output`, worktrees in `<base>/<run-id>/worktrees`, and stored results in `<base>/<run-id>/results`. Set `EVAL_FEIA_RESULTS_DIR` only when stored results must live outside that per-run base layout. The SQLite metadata index defaults to `<base>/eval-feia.sqlite3`; set `EVAL_FEIA_DB_PATH` to override that database path.
 
 `--command <name>` runs an opencode slash command. The prompt file content is sent to opencode as the command `arguments`. A leading slash is accepted in CLI input, so `--command /bash` sends `"bash"` in the HTTP request body.
 
@@ -43,7 +43,7 @@ Stored results default to `$HOME/.eval-feia/results`. Set `EVAL_FEIA_RESULTS_DIR
 - number of attempts/candidates
 - prompt text or prompt file
 - optional slash command name
-- output directory
+- base directory or output directory
 
 ### Output
 
@@ -61,9 +61,9 @@ The command prints:
 
 The command writes:
 
-- stored result metadata, output, summary, and logs under `$HOME/.eval-feia/results/runs/<run-id>`
-- append-only `$HOME/.eval-feia/results/index.jsonl`
-- run metadata in the local SQLite index at `<output-root>/eval-feia.sqlite3`, unless `EVAL_FEIA_DB_PATH` overrides the database path
+- stored result metadata, output, summary, and logs under `<base>/<run-id>/results`
+- append-only `<base>/<run-id>/results/index.jsonl`
+- run metadata in the local SQLite index at `<base>/eval-feia.sqlite3`, unless `EVAL_FEIA_DB_PATH` overrides the database path
 - manifest
 - per-candidate session metadata
 - messages
@@ -90,13 +90,14 @@ Recommended exit codes:
 
 ## Command: `eval-feia list`
 
-Lists generated run artifacts from the configured run output root.
+Lists generated run artifacts from the configured eval-feia base or run output root.
 
 ### Usage
 
 ```bash
 eval-feia list
 eval-feia list --limit 5
+eval-feia list --base-dir ./eval-state
 eval-feia list --output-dir ./custom-runs
 eval-feia list --json
 EVAL_FEIA_DB_PATH=/tmp/eval-feia.sqlite3 eval-feia list --json
@@ -105,7 +106,7 @@ eval-feia list --status success --branch HEAD
 
 ### Behavior
 
-- By default, reads saved run directories under the same output root used by `run`; defaults to `.eval-feia/runs` and accepts `--output-dir` for custom roots.
+- By default, reads saved run directories under `<base>/<run-id>/output`; the base defaults to `$HOME/.eval-feia`. It accepts `--base-dir` for another eval-feia base and `--output-dir` for a custom run output root.
 - Prefers `manifest.json` and `run-summary.json` metadata when present.
 - Falls back to the run directory name, file paths, and modification time for partial or legacy results.
 - Sorts newest modified runs first.
@@ -119,7 +120,7 @@ File-output listing includes the run ID, created time, modified time, label when
 
 ```text
 RUN                      CREATED                    MODIFIED                   LABEL       BRANCH                         OUTPUT                         RESULT
-20260514-123456-a1b2c3   2026-05-14T12:34:56+09:00 2026-05-14T12:40:00+09:00 command run eval/20260514-a1b2/cand-001 /repo/.eval-feia/runs/...     /repo/.eval-feia/runs/.../run-summary.json
+20260514-123456-a1b2c3   2026-05-14T12:34:56+09:00 2026-05-14T12:40:00+09:00 command run eval/20260514-a1b2/cand-001 /home/user/.eval-feia/20260514-123456-a1b2c3/output     /home/user/.eval-feia/20260514-123456-a1b2c3/output/run-summary.json
 ```
 
 SQLite index listing uses short run ID, status, branch or label, cwd/repo name, started/ended timestamps, duration, and output directory.
@@ -134,6 +135,7 @@ No saved runs found.
 
 ```text
 --limit N           Show only the most recent N saved runs.
+--base-dir PATH     Eval-feia base directory whose runs/ root is inspected.
 --output-dir PATH   Run output root to inspect.
 --status STATUS     Filter indexed runs by pending/running/success/failed/cancelled.
 --branch BRANCH     Filter indexed runs by branch/base ref.
@@ -148,9 +150,10 @@ Removes generated resources from a previous run.
 ### Usage
 
 ```bash
-eval-feia clean .eval-feia/runs/<run-id>/manifest.json
-eval-feia clean .eval-feia/runs/<run-id>/manifest.json --delete-index
+eval-feia clean ~/.eval-feia/<run-id>/output/manifest.json
+eval-feia clean ~/.eval-feia/<run-id>/output/manifest.json --delete-index
 eval-feia clean --results --dry-run
+eval-feia clean --results --base-dir ./eval-state --dry-run
 ```
 
 ### Behavior
@@ -163,13 +166,14 @@ eval-feia clean --results --dry-run
 - Does not remove files outside manifest-recorded generated resources.
 - Does not remove stored results.
 - By default, preserves SQLite records and marks the run output as missing in `metadata_json` after deleting manifest-recorded files.
-- `--delete-index` deletes only the default database under the manifest output root; custom `EVAL_FEIA_DB_PATH` databases must be removed manually.
+- `--delete-index` deletes only the manifest-recorded default database under the eval-feia base; custom `EVAL_FEIA_DB_PATH` databases must be removed manually.
 - `--results` removes the configured durable stored-results root instead of generated artifacts. It cannot be combined with a manifest, `--force`, or `--delete-index`.
 
 ### Flags
 
 ```text
 MANIFEST             Manifest file to clean.
+--base-dir           Eval-feia base directory used with --results.
 --results            Remove the configured durable stored-results root.
 --dry-run            Print planned deletions without deleting.
 --force              Continue after non-critical cleanup errors.
