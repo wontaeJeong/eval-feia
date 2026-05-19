@@ -12,26 +12,26 @@ The MVP CLI is arguments-only. It does not load YAML, JSON, or TOML config files
 - `--repo PATH`: git repository path. Defaults to the current directory.
 - `--branch REF`: base ref for generated worktrees. Defaults to `HEAD`.
 - `--attempts N`: number of candidates to run. Defaults to `1`.
-- `--label TEXT`: run-level human-readable label used in logs, stored results, summaries, and indexed listings.
+- `--label TEXT`: run-level human-readable label used in logs, stored results, summaries, and listings.
 - `--command NAME`: optional opencode slash command. A leading slash is accepted and stripped before sending the HTTP request body.
-- `--base-dir PATH`: eval-feia state base. `output/`, `worktrees/`, `results/`, and the default SQLite DB are derived from it per run.
+- `--progress / --no-progress`: enable or disable live progress logs, including opencode event stream updates. Progress is enabled by default.
+- `--quiet`: hide progress logs while keeping final output.
+- `--base-dir PATH`: eval-feia state base. `output/`, `worktrees/`, and `results/` are derived from it per run.
 - `--output-dir PATH`: generated run artifact base. Defaults to `<base>` and writes each run under `<base>/<run-id>/output`; `list` accepts the same flag to inspect custom roots. It cannot be combined with `--base-dir`.
 
 ## Environment Inputs
 
 `EVAL_FEIA_BASE_DIR` sets the shared eval-feia state base. When unset, the base defaults to `$HOME/.eval-feia`. Stored result records default to `<base>/<run-id>/results` and can be overridden with `EVAL_FEIA_RESULTS_DIR` when durable results must intentionally live outside the per-run base layout.
 
-The SQLite metadata index defaults to `<base>/eval-feia.sqlite3`. Set `EVAL_FEIA_DB_PATH` to use a custom database path. Custom DB paths are used for indexing and listing but are not deleted by `clean --delete-index`.
-
 ## Listing Configuration
 
-`eval-feia list` reads generated run artifact directories by default. It switches to the SQLite metadata index when `EVAL_FEIA_DB_PATH` is set or when one of these filters is supplied:
+`eval-feia list` reads generated run artifact directories and stored result metadata from local files. These filters are file-backed:
 
 - `--status pending|running|success|failed|cancelled`
 - `--branch REF`
 - `--label TEXT`
 
-`--limit`, `--base-dir`, `--output-dir`, and `--json` apply to both listing modes.
+`--limit`, `--base-dir`, `--output-dir`, and `--json` apply to the same unified listing mode.
 
 ## Internal Model
 

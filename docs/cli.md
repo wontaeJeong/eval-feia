@@ -4,22 +4,11 @@
 
 Runs the full evaluation pipeline.
 
-### Usage
-
 ```bash
 eval-feia run "Fix the failing tests" --repo . --branch HEAD --attempts 1
-```
-
-Use `--prompt-file` when the prompt is stored on disk:
-
-```bash
 eval-feia run --prompt-file ./prompt.md --repo . --branch HEAD --attempts 3 --command bash --base-dir ./.eval-feia
-```
-
-For a one-off eval, inline prompt, branch, and a run-level label can be supplied directly:
-
-```bash
-eval-feia run "..." --label "foo test"
+eval-feia run "..." --label "foo test" --no-progress
+eval-feia run "..." --quiet
 ```
 
 Provide only one prompt source: the positional prompt argument or `--prompt-file`.
@@ -31,19 +20,13 @@ Run ID: 20260517-143012-a1b2c3
 Output directory: /home/user/.eval-feia/20260517-143012-a1b2c3/results
 ```
 
-Runs, worktrees, stored results, and the default SQLite index share one base directory under the home directory. The base defaults to `$HOME/.eval-feia`, can be set with `EVAL_FEIA_BASE_DIR`, and can be overridden for a run with `--base-dir`. A run stores generated artifacts in `<base>/<run-id>/output`, worktrees in `<base>/<run-id>/worktrees`, and stored results in `<base>/<run-id>/results`. Set `EVAL_FEIA_RESULTS_DIR` only when stored results must live outside that per-run base layout. The SQLite metadata index defaults to `<base>/eval-feia.sqlite3`; set `EVAL_FEIA_DB_PATH` to override that database path.
+Runs, worktrees, and stored results share one base directory under the home directory. The base defaults to `$HOME/.eval-feia`, can be set with `EVAL_FEIA_BASE_DIR`, and can be overridden for a run with `--base-dir`. A run stores generated artifacts in `<base>/<run-id>/output`, worktrees in `<base>/<run-id>/worktrees`, and stored results in `<base>/<run-id>/results`. Set `EVAL_FEIA_RESULTS_DIR` only when stored results must live outside that per-run base layout.
 
 `--command <name>` runs an opencode slash command. The prompt file content is sent to opencode as the command `arguments`. A leading slash is accepted in CLI input, so `--command /bash` sends `"bash"` in the HTTP request body.
 
-### Required inputs
+Live progress logging is enabled by default. `--no-progress` disables progress logs, including per-trial event logs. `--quiet` also disables progress logs while keeping the final result output.
 
-- opencode server URL
-- git repository path
-- base ref
-- number of attempts/candidates
-- prompt text or prompt file
-- optional slash command name
-- base directory or output directory
+The opencode server must already be running. `eval-feia` does not start, stop, restart, dispose, or kill `opencode serve`.
 
 ### Output
 
@@ -52,18 +35,16 @@ The command prints:
 - server health/version
 - run ID
 - repository path, base ref/SHA, output directory, worktree root, execution mode, and validation command count
-- progress lines for server preflight, output setup, worktree creation, candidate execution, and summary writing
+- progress lines for server preflight, output setup, worktree creation, candidate execution, opencode event stream updates, and summary writing
 - generated worktree table with per-candidate index and worktree path
 - run label when provided
-- per-candidate session IDs
-- per-candidate status updates
+- per-candidate session IDs and status updates
 - final plain summary table without repeating run metadata already printed before execution
 
 The command writes:
 
 - stored result metadata, output, summary, and logs under `<base>/<run-id>/results`
 - append-only `<base>/<run-id>/results/index.jsonl`
-- run metadata in the local SQLite index at `<base>/eval-feia.sqlite3`, unless `EVAL_FEIA_DB_PATH` overrides the database path
 - manifest
 - per-candidate session metadata
 - messages
@@ -72,12 +53,10 @@ The command writes:
 - opencode diff
 - local git diff
 - validation result
-- result JSON and summary JSON with run-level `label`, `base_ref`, `base_sha`, `branch_name`, `worktree_path`, `session_id`, and status
+- result JSON and summary JSON with run-level `label`, `base_ref`, `base_sha`, `branch_name`, `worktree_path`, `session_id`, status, elapsed time, and available token metrics
 - final summary markdown and JSON
 
-### Exit codes
-
-Recommended exit codes:
+### Exit Codes
 
 - `0`: all candidates completed and all required validation passed
 - `1`: one or more candidates failed or validation failed
@@ -85,14 +64,11 @@ Recommended exit codes:
 - `3`: opencode server preflight failed
 - `4`: git worktree setup failed
 - `5`: cleanup safety check failed
-- `6`: SQLite metadata index inspection failed
 - `130`: interrupted by user
 
 ## Command: `eval-feia list`
 
-Lists generated run artifacts from the configured eval-feia base or run output root.
-
-### Usage
+Lists generated run artifacts and stored result metadata from local files. This is the single listing command; the stored-result namespace has only per-run inspection commands.
 
 ```bash
 eval-feia list
@@ -100,30 +76,37 @@ eval-feia list --limit 5
 eval-feia list --base-dir ./eval-state
 eval-feia list --output-dir ./custom-runs
 eval-feia list --json
-EVAL_FEIA_DB_PATH=/tmp/eval-feia.sqlite3 eval-feia list --json
 eval-feia list --status success --branch HEAD
 ```
 
-### Behavior
+Behavior:
 
-- By default, reads saved run directories under `<base>/<run-id>/output`; the base defaults to `$HOME/.eval-feia`. It accepts `--base-dir` for another eval-feia base and `--output-dir` for a custom run output root.
+- Reads generated run directories under `<base>/<run-id>/output`.
+- Reads stored result metadata under `<base>/<run-id>/results`.
 - Prefers `manifest.json` and `run-summary.json` metadata when present.
-- Falls back to the run directory name, file paths, and modification time for partial or legacy results.
+- Falls back to run directory names, file paths, and modification time for partial results.
 - Sorts newest modified runs first.
 - Treats a missing output root as an empty list.
-- Does not delete or modify files.
-- When `EVAL_FEIA_DB_PATH` or any SQLite filter is provided, reads recent run metadata from the local SQLite index instead. If the DB is empty and file outputs already exist, it performs a best-effort idempotent backfill from `manifest.json` and `run-summary.json`.
+- Applies `--status`, `--branch`, and `--label` by filtering file-backed metadata.
 
-### Output
-
-File-output listing includes the run ID, created time, modified time, label when available, branch information when available, output directory, and result/metadata file path.
+Output includes run ID, created time, modified time, status, label when available, branch information when available, output directory, and result/metadata file path.
 
 ```text
-RUN                      CREATED                    MODIFIED                   LABEL       BRANCH                         OUTPUT                         RESULT
-20260514-123456-a1b2c3   2026-05-14T12:34:56+09:00 2026-05-14T12:40:00+09:00 command run eval/20260514-a1b2/cand-001 /home/user/.eval-feia/20260514-123456-a1b2c3/output     /home/user/.eval-feia/20260514-123456-a1b2c3/output/run-summary.json
+RUN                      CREATED                    MODIFIED                   STATUS   LABEL       BRANCH                         OUTPUT                         RESULT
+20260514-123456-a1b2c3   2026-05-14T12:34:56+09:00 2026-05-14T12:40:00+09:00 success  command run eval/20260514-a1b2/cand-001 /home/user/.eval-feia/20260514-123456-a1b2c3/output /home/user/.eval-feia/20260514-123456-a1b2c3/output/run-summary.json
 ```
 
-SQLite index listing uses short run ID, status, branch or label, cwd/repo name, started/ended timestamps, duration, and output directory.
+Flags:
+
+```text
+--limit N           Show only the most recent N saved runs.
+--base-dir PATH     Eval-feia base directory whose runs are inspected.
+--output-dir PATH   Generated run artifact root to inspect.
+--status STATUS     Filter runs by pending/running/success/failed/cancelled/unknown.
+--branch BRANCH     Filter runs by branch/base ref.
+--label LABEL       Filter runs by label.
+--json              Print JSON.
+```
 
 When there are no saved runs, the command prints:
 
@@ -131,84 +114,58 @@ When there are no saved runs, the command prints:
 No saved runs found.
 ```
 
-### Flags
-
-```text
---limit N           Show only the most recent N saved runs.
---base-dir PATH     Eval-feia base directory whose runs/ root is inspected.
---output-dir PATH   Run output root to inspect.
---status STATUS     Filter indexed runs by pending/running/success/failed/cancelled.
---branch BRANCH     Filter indexed runs by branch/base ref.
---label LABEL       Filter indexed runs by run label.
---json              Print saved runs as a JSON array.
-```
-
 ## Command: `eval-feia clean`
 
-Removes generated resources from a previous run.
-
-### Usage
+Removes generated run artifacts by manifest, or stored results with `--results`.
 
 ```bash
 eval-feia clean ~/.eval-feia/<run-id>/output/manifest.json
-eval-feia clean ~/.eval-feia/<run-id>/output/manifest.json --delete-index
+eval-feia clean --results
 eval-feia clean --results --dry-run
-eval-feia clean --results --base-dir ./eval-state --dry-run
 ```
 
-### Behavior
+Rules:
 
-- Reads manifest.
-- Validates each path and eval-feia generated-root marker.
-- Removes generated git worktrees using `git worktree remove` when possible.
-- Removes candidate result directories if configured.
-- Does not stop opencode server.
-- Does not remove files outside manifest-recorded generated resources.
-- Does not remove stored results.
-- By default, preserves SQLite records and marks the run output as missing in `metadata_json` after deleting manifest-recorded files.
-- `--delete-index` deletes only the manifest-recorded default database under the eval-feia base; custom `EVAL_FEIA_DB_PATH` databases must be removed manually.
-- `--results` removes the configured durable stored-results root instead of generated artifacts. It cannot be combined with a manifest, `--force`, or `--delete-index`.
+- Manifest cleanup deletes only manifest-recorded generated worktrees, generated result directories, generated run output roots, and generated worktree roots.
+- Every generated root must carry the eval-feia generated-root marker.
+- `--results` removes the configured durable stored-results root instead of generated artifacts. It cannot be combined with a manifest or `--force`.
+- `--dry-run` prints planned deletions without deleting.
+- `--force` allows cleanup to continue after non-critical removal errors for manifest cleanup only.
 
-### Flags
+Flags:
 
 ```text
-MANIFEST             Manifest file to clean.
---base-dir           Eval-feia base directory used with --results.
---results            Remove the configured durable stored-results root.
---dry-run            Print planned deletions without deleting.
---force              Continue after non-critical cleanup errors.
---delete-index       Also delete the manifest-recorded default SQLite metadata index database.
+MANIFEST            Manifest path for generated artifact cleanup.
+--dry-run           Print planned deletions without deleting.
+--force             Continue manifest cleanup after non-critical removal errors.
+--results           Clean stored result history instead of generated artifacts.
+--base-dir PATH     Eval-feia base directory used with --results.
 ```
 
-`clean --results` validates that the target is an eval-feia-owned results root and rejects unexpected top-level entries before deleting anything.
+## Commands: `eval-feia results show|path|file`
 
-## Command group: `eval-feia results`
-
-Inspect locally stored run results without contacting opencode.
+Stored result inspection stays read-only:
 
 ```bash
-eval-feia results list
 eval-feia results show <run-id>
 eval-feia results path <run-id>
-eval-feia results file <run-id> [file]
+eval-feia results file <run-id> output.txt
 ```
 
-- `results list` prints `run_id`, `created_at`, `status`, `branch`, `label`, `cwd`, and `output_dir` newest first. If `index.jsonl` is missing or damaged, it scans `runs/*/metadata.json`.
+- `eval-feia list` is the single command for listing both generated artifacts and stored results.
 - `results show <run-id>` prints metadata plus `summary.txt`, falling back to the start of `output.txt`.
-- `results path <run-id>` prints only the absolute stored run directory for scripts.
+- `results path <run-id>` prints the stored result directory.
 - `results file <run-id> [file]` prints a file inside the run directory; the default is `output.txt`. Absolute paths and `..` traversal are rejected.
 
-## Removed or deferred commands
+## Intentionally Absent Commands
 
-These commands are intentionally out of MVP scope:
+These remain out of scope:
 
 ```text
-serve      # server lifecycle is external
-attach     # REST execution replaces CLI attach
+serve      # opencode server lifecycle is external
+attach     # no opencode run --attach
 collect    # run collects automatically
 summary    # run summarizes automatically
-report     # run writes report automatically
-status     # not needed unless detached/background run mode is added later
+report
+status
 ```
-
-The former verbose command names (`run-eval`, `list-run-artifacts`, `clean-run-artifacts`, `clean-stored-results`, and standalone stored-result inspection commands) are intentionally not registered; use `run`, `list`, `results`, and `clean` instead.
