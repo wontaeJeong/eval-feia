@@ -11,7 +11,7 @@ from eval_feia.runner import _build_candidate_specs
 
 def test_build_config_maps_cli_inputs_and_resolves_paths(tmp_path: Path) -> None:
     prompt = tmp_path / "prompt.md"
-    output_dir = tmp_path / "runs"
+    base_root = tmp_path / "runs"
     prompt.write_text("hello", encoding="utf-8")
 
     config = build_config(
@@ -19,10 +19,11 @@ def test_build_config_maps_cli_inputs_and_resolves_paths(tmp_path: Path) -> None
         repo=Path("repo"),
         base_ref="main",
         candidates=3,
+        concurrency=2,
         prompt_file=Path("prompt.md"),
         label="foo test",
         command="/bash",
-        output_dir=Path("runs"),
+        base_root=Path("runs"),
         base_dir=tmp_path,
     )
 
@@ -30,10 +31,12 @@ def test_build_config_maps_cli_inputs_and_resolves_paths(tmp_path: Path) -> None
     assert config.repo.path == (tmp_path / "repo").resolve(strict=False)
     assert config.repo.base_ref == "main"
     assert config.run.candidates == 3
+    assert config.run.concurrency == 2
     assert config.run.prompt_file == prompt.resolve(strict=False)
     assert config.run.label == "foo test"
     assert config.run.command == "/bash"
-    assert config.run.output_root == output_dir.resolve(strict=False)
+    assert config.run.output_root == base_root.resolve(strict=False)
+    assert config.repo.worktree_root == base_root.resolve(strict=False)
 
 
 def test_build_config_derives_run_and_worktree_roots_from_base_dir(tmp_path: Path) -> None:
@@ -65,6 +68,17 @@ def test_default_roots_use_home_base(monkeypatch, tmp_path: Path) -> None:
 
     assert config.run.output_root == (home / ".eval-feia").resolve(strict=False)
     assert config.repo.worktree_root == (home / ".eval-feia").resolve(strict=False)
+
+
+def test_build_config_clamps_concurrency_to_candidates(tmp_path: Path) -> None:
+    config = build_config(prompt="hello", candidates=2, concurrency=5, base_dir=tmp_path)
+
+    assert config.run.concurrency == 2
+
+
+def test_build_config_rejects_invalid_concurrency(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError, match="greater than or equal to 1"):
+        build_config(prompt="hello", concurrency=0, base_dir=tmp_path)
 
 
 def test_build_config_accepts_inline_prompt(tmp_path: Path) -> None:

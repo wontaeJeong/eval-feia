@@ -24,7 +24,7 @@ from .summary import render_markdown_summary
 
 
 app = typer.Typer(add_completion=False, help="REST-only opencode worktree evaluator.")
-results_app = typer.Typer(add_completion=False, help="Inspect stored run results.")
+result_app = typer.Typer(add_completion=False, help="List and inspect stored eval-feia results.")
 console = Console()
 VALID_LIST_STATUSES = {"pending", "running", "success", "failed", "cancelled", "unknown"}
 
@@ -66,6 +66,15 @@ def run_eval(
             show_default="1",
         ),
     ] = None,
+    jobs: Annotated[
+        int | None,
+        typer.Option(
+            "--jobs",
+            "-j",
+            help="Maximum number of concurrent evaluation jobs.",
+            show_default="1",
+        ),
+    ] = None,
     prompt_file: Annotated[Path | None, typer.Option("--prompt-file", help="Prompt file.")] = None,
     label: Annotated[
         str | None,
@@ -85,10 +94,6 @@ def run_eval(
             help="Show live progress logs, including opencode event stream updates.",
         ),
     ] = True,
-    quiet: Annotated[
-        bool,
-        typer.Option("--quiet", help="Hide progress logs while keeping final output."),
-    ] = False,
     base_dir: Annotated[
         Path | None,
         typer.Option(
@@ -99,17 +104,10 @@ def run_eval(
             ),
         ),
     ] = None,
-    output_dir: Annotated[
-        Path | None,
-        typer.Option(
-            "--output-dir",
-            help="Generated run output root for run artifacts.",
-        ),
-    ] = None,
 ) -> None:
     """Create worktrees, execute opencode sessions, collect results, and summarize."""
-    if base_dir is not None and output_dir is not None:
-        console.print("--base-dir and --output-dir cannot be used together", style="red")
+    if jobs is not None and jobs < 1:
+        console.print("--jobs must be greater than zero", style="red")
         raise typer.Exit(2)
     run_id = generate_run_id()
     results_root = _results_root_for_base_dir(run_id, base_dir)
@@ -131,13 +129,13 @@ def run_eval(
             repo=repo,
             base_ref=branch,
             attempts=attempts,
+            jobs=jobs,
             prompt=prompt,
             prompt_file=prompt_file,
             label=label,
             command=command,
-            progress=progress and not quiet,
+            progress=progress,
             base_dir=base_dir,
-            output_dir=output_dir,
         )
         outcome = run_evaluation(eval_config, console=run_console, run_id=run_id)
     except ConfigError as exc:
@@ -184,13 +182,13 @@ def _build_run_config(
     repo: Path | None,
     base_ref: str | None,
     attempts: int | None,
+    jobs: int | None,
     prompt: str | None,
     prompt_file: Path | None,
     label: str | None,
     command: str | None,
     progress: bool | None,
     base_dir: Path | None,
-    output_dir: Path | None,
 ) -> EvalConfig:
     _validate_prompt_sources(prompt, prompt_file)
     return build_config(
@@ -198,13 +196,13 @@ def _build_run_config(
         repo=repo,
         base_ref=base_ref,
         candidates=attempts,
+        concurrency=jobs,
         prompt=prompt,
         prompt_file=prompt_file,
         label=label,
         command=command,
         progress=progress,
         base_root=base_dir,
-        output_dir=output_dir,
     )
 
 
@@ -235,10 +233,6 @@ def _list_run_artifacts_command(
         Path | None,
         typer.Option("--base-dir", help="Eval-feia base directory to inspect."),
     ] = None,
-    output_dir: Annotated[
-        Path | None,
-        typer.Option("--output-dir", help="Generated run artifact root to inspect."),
-    ] = None,
     status: Annotated[str | None, typer.Option("--status", help="Filter by run status.")] = None,
     branch: Annotated[str | None, typer.Option("--branch", help="Filter by branch/base ref.")] = None,
     label: Annotated[str | None, typer.Option("--label", help="Filter by run label.")] = None,
@@ -257,17 +251,14 @@ def _list_run_artifacts_command(
             style="red",
         )
         raise typer.Exit(2)
-    if base_dir is not None and output_dir is not None:
-        console.print("--base-dir and --output-dir cannot be used together", style="red")
-        raise typer.Exit(2)
     runs = list_saved_runs(
-        output_root=_output_root_for_list(base_dir=base_dir, output_dir=output_dir),
+        output_root=_output_root_for_list(base_dir=base_dir),
         limit=limit,
         status=status,
         branch=branch,
         label=label,
-        include_results=output_dir is None,
-        include_configured_results=base_dir is None and output_dir is None,
+        include_results=True,
+        include_configured_results=base_dir is None,
     )
     if json_output:
         typer.echo(saved_runs_json(runs))
@@ -276,15 +267,71 @@ def _list_run_artifacts_command(
     raise typer.Exit(0)
 
 
-def _output_root_for_list(*, base_dir: Path | None, output_dir: Path | None) -> Path:
-    if output_dir is not None:
-        return output_dir.expanduser().resolve(strict=False)
+@result_app.command("show")
+def show_stored_result(
+    run_id: str,
+    base_dir: Annotated[
+        Path | None,
+        typer.Option("--base-dir", help="Eval-feia base directory to inspect."),
+    ] = None,
+) -> None:
+    """Show metadata and a short summary for one stored run."""
+    root = _results_root_for_base_dir(run_id, base_dir)
+    try:
+        _show_stored_result(run_id, root=root)
+    except Exception as exc:
+        _raise_result_error(exc)
+
+
+@result_app.command("path")
+def print_stored_result_path(
+    run_id: Annotated[str, typer.Argument(help="Run ID to locate.")],
+    base_dir: Annotated[
+        Path | None,
+        typer.Option("--base-dir", help="Eval-feia base directory to inspect."),
+    ] = None,
+) -> None:
+    """Print only the stored run output directory."""
+    root = _results_root_for_base_dir(run_id, base_dir)
+    try:
+        metadata = load_metadata(run_id, root=root)
+    except Exception as exc:
+        _raise_result_error(exc)
+    console.print(
+        str(Path(str(metadata["output_dir"])).resolve(strict=False)),
+        markup=False,
+        soft_wrap=True,
+    )
+
+
+@result_app.command("file")
+def print_stored_result_file(
+    run_id: Annotated[str, typer.Argument(help="Run ID to read from.")],
+    file: Annotated[
+        str | None,
+        typer.Argument(help="File inside the run directory. Defaults to output.txt."),
+    ] = None,
+    base_dir: Annotated[
+        Path | None,
+        typer.Option("--base-dir", help="Eval-feia base directory to inspect."),
+    ] = None,
+) -> None:
+    """Print a stored result file."""
+    root = _results_root_for_base_dir(run_id, base_dir)
+    try:
+        content = read_result_file(run_id, file, root=root)
+    except Exception as exc:
+        _raise_result_error(exc)
+    console.print(content, markup=False, end="", soft_wrap=True)
+
+
+def _output_root_for_list(*, base_dir: Path | None) -> Path:
     if base_dir is not None:
         return output_root_for_base(base_dir).expanduser().resolve(strict=False)
     return output_root_for_base().expanduser().resolve(strict=False)
 
 
-app.command("list")(_list_run_artifacts_command)
+result_app.command("list")(_list_run_artifacts_command)
 
 
 def _finish_completed_cli_run(
@@ -399,14 +446,9 @@ def _copy_text_artifacts(run_id: str, artifacts_dir: Path, *, results_root: Path
             (stored_dir / name).write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
 
 
-@results_app.command("show")
-def show_stored_result(run_id: Annotated[str, typer.Argument(help="Run ID to show.")]) -> None:
-    """Show metadata and a short summary for one stored run."""
-    try:
-        metadata = load_metadata(run_id)
-        summary = _result_summary_preview(run_id)
-    except Exception as exc:
-        _raise_results_error(exc)
+def _show_stored_result(run_id: str, *, root: Path | None = None) -> None:
+    metadata = load_metadata(run_id, root=root)
+    summary = _result_summary_preview(run_id, root=root)
     for key in (
         "run_id",
         "status",
@@ -425,48 +467,18 @@ def show_stored_result(run_id: Annotated[str, typer.Argument(help="Run ID to sho
     console.print(summary, markup=False)
 
 
-@results_app.command("path")
-def print_stored_result_path(run_id: Annotated[str, typer.Argument(help="Run ID to locate.")]) -> None:
-    """Print only the stored run output directory."""
+def _result_summary_preview(run_id: str, *, root: Path | None = None, limit: int = 4000) -> str:
     try:
-        metadata = load_metadata(run_id)
-    except Exception as exc:
-        _raise_results_error(exc)
-    console.print(
-        str(Path(str(metadata["output_dir"])).resolve(strict=False)),
-        markup=False,
-        soft_wrap=True,
-    )
-
-
-@results_app.command("file")
-def print_stored_result_file(
-    run_id: Annotated[str, typer.Argument(help="Run ID to read from.")],
-    file: Annotated[
-        str | None,
-        typer.Argument(help="File inside the run directory. Defaults to output.txt."),
-    ] = None,
-) -> None:
-    """Print a stored result file."""
-    try:
-        content = read_result_file(run_id, file)
-    except Exception as exc:
-        _raise_results_error(exc)
-    console.print(content, markup=False, end="", soft_wrap=True)
-
-
-def _result_summary_preview(run_id: str, *, limit: int = 4000) -> str:
-    try:
-        text = read_result_file(run_id, "summary.txt")
+        text = read_result_file(run_id, "summary.txt", root=root)
     except FileNotFoundError:
-        text = read_result_file(run_id, "output.txt")
+        text = read_result_file(run_id, "output.txt", root=root)
     if len(text) <= limit:
         return text
     return text[:limit].rstrip() + "\n..."
 
 
-def _raise_results_error(exc: Exception) -> None:
-    console.print(f"results error: {exc}", style="red")
+def _raise_result_error(exc: Exception) -> None:
+    console.print(f"result error: {exc}", style="red")
     raise typer.Exit(1) from exc
 
 
@@ -538,7 +550,7 @@ def _results_base_for_cleanup(base_dir: Path | None) -> Path | None:
     return output_root_for_base(base_dir).expanduser().resolve(strict=False)
 
 
-app.add_typer(results_app, name="results")
+app.add_typer(result_app, name="result")
 
 
 def _print_cleanup_result(cleanup_result: CleanupResult, *, dry_run: bool) -> None:

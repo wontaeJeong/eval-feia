@@ -176,22 +176,21 @@ def build_config(
     repo: Path | None = None,
     base_ref: str | None = None,
     candidates: int | None = None,
+    concurrency: int | None = None,
     prompt: str | None = None,
     prompt_file: Path | None = None,
     label: str | None = None,
     command: str | None = None,
     progress: bool | None = None,
-    output_dir: Path | None = None,
     base_root: Path | None = None,
     base_dir: Path | None = None,
 ) -> EvalConfig:
-    if output_dir is not None and base_root is not None:
-        raise ConfigError("--base-dir and --output-dir cannot be used together")
     raw: dict[str, Any] = {"run": {}}
     _set_nested(raw, "server", "url", server_url)
     _set_nested(raw, "repo", "path", repo)
     _set_nested(raw, "repo", "base_ref", base_ref)
     _set_nested(raw, "run", "candidates", candidates)
+    _set_nested(raw, "run", "concurrency", concurrency)
     _set_nested(raw, "run", "prompt", prompt)
     _set_nested(raw, "run", "prompt_file", prompt_file)
     _set_nested(raw, "run", "label", label)
@@ -201,8 +200,6 @@ def build_config(
         effective_base_root = _resolve_path(base_root, base_dir or Path.cwd())
         _set_nested(raw, "repo", "worktree_root", worktree_root_for_base(effective_base_root))
         _set_nested(raw, "run", "output_root", output_root_for_base(effective_base_root))
-    else:
-        _set_nested(raw, "run", "output_root", output_dir)
     try:
         config = EvalConfig.model_validate(raw)
     except Exception as exc:  # pydantic includes detailed validation text
