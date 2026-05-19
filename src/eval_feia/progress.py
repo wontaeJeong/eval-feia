@@ -66,16 +66,12 @@ class TrialProgressMetadata:
     session_id: str | None = None
 
     def prefix(self) -> str:
-        parts = [f"[trial {self.index}/{self.total}]", f"[id={self.trial_id}]"]
-        if self.session_id:
-            parts.append(f"[session={self.session_id}]")
-        if self.label:
-            parts.append(f"[label={_compact(self.label)}]")
-        if self.branch:
-            parts.append(f"[branch={_compact(self.branch)}]")
-        if self.worktree is not None:
-            parts.append(f"[worktree={self.worktree}]")
-        return "".join(parts)
+        return f"[trial {self.index}/{self.total}]"
+
+    def trial_details(self) -> str:
+        if self.worktree is None:
+            return ""
+        return f"worktree={self.worktree}"
 
 
 class TrialProgressLogger:
@@ -107,11 +103,12 @@ class TrialProgressLogger:
         return self._error
 
     def started(self) -> None:
-        self.print("started")
+        details = self._metadata.trial_details()
+        self.print(f"started {details}" if details else "started")
 
     def session_created(self, session_id: str) -> None:
         self._metadata.session_id = session_id
-        self.print("session created")
+        self.print(f"session created session={session_id}")
 
     def completed(self, status: str, validation_status: str, elapsed_seconds: float) -> None:
         self.print(

@@ -33,6 +33,8 @@ class CandidateSummary(TypedDict):
     token_output: int | None
     token_reasoning: int | None
     tool_call_count: int | None
+    tool_success_count: int | None
+    tool_error_count: int | None
     cost_total: float | None
     final_output_file: str
 

@@ -31,6 +31,9 @@ def test_print_summary_renders_candidate_values_as_plain_text() -> None:
                     "token_input": 10,
                     "token_output": 20,
                     "token_reasoning": 5,
+                    "tool_call_count": 3,
+                    "tool_success_count": 2,
+                    "tool_error_count": 1,
                 },
                 "session_id": "ses_1",
                 "worktree_path": "/tmp/[green]worktree[/green]",
@@ -43,6 +46,10 @@ def test_print_summary_renders_candidate_values_as_plain_text() -> None:
     text = output.getvalue()
     assert "eval-feia run summary" in text
     assert "CANDIDATE  STATUS" in text
+    assert "SESSION" not in text
+    assert "TOOLS" in text
+    assert "TOOL_OK" in text
+    assert "TOOL_ERR" in text
     assert "TOKEN_IN" in text
     assert "completed" in text
     assert "1.234s" in text
@@ -79,3 +86,23 @@ def test_extract_metrics_falls_back_per_missing_session_field() -> None:
     assert metrics["token_input"] == 4
     assert metrics["token_output"] == 7
     assert metrics["token_reasoning"] == 2
+
+
+def test_extract_metrics_counts_tool_statuses() -> None:
+    metrics = extract_opencode_metrics(
+        {},
+        [
+            {
+                "info": {"role": "assistant"},
+                "parts": [
+                    {"type": "tool", "tool": "bash", "callID": "call-1", "state": {"status": "completed"}},
+                    {"type": "tool", "tool": "edit", "callID": "call-2", "state": {"status": "error"}},
+                    {"type": "tool", "tool": "edit", "callID": "call-2", "state": {"status": "error"}},
+                ],
+            }
+        ],
+    )
+
+    assert metrics["tool_call_count"] == 2
+    assert metrics["tool_success_count"] == 1
+    assert metrics["tool_error_count"] == 1

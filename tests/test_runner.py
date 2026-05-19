@@ -183,7 +183,22 @@ def test_runner_uses_inline_prompt(tmp_path: Path) -> None:
         if request.url.path == "/session/ses_1":
             return httpx.Response(200, json={"id": "ses_1", "directory": cwd})
         if request.url.path == "/session/ses_1/message":
-            return httpx.Response(200, json=[])
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "info": {"role": "assistant"},
+                        "parts": [
+                            {
+                                "type": "tool",
+                                "tool": "bash",
+                                "callID": "call_1",
+                                "state": {"status": "completed"},
+                            }
+                        ],
+                    }
+                ],
+            )
         if request.url.path == "/session/ses_1/children":
             return httpx.Response(200, json=[])
         if request.url.path == "/session/ses_1/todo":
@@ -279,7 +294,22 @@ def test_runner_required_validation_failure_fails_candidate(tmp_path: Path) -> N
         if request.url.path == "/session/ses_1":
             return httpx.Response(200, json={"id": "ses_1", "directory": cwd})
         if request.url.path == "/session/ses_1/message":
-            return httpx.Response(200, json=[])
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "info": {"role": "assistant"},
+                        "parts": [
+                            {
+                                "type": "tool",
+                                "tool": "bash",
+                                "callID": "call_1",
+                                "state": {"status": "completed"},
+                            }
+                        ],
+                    }
+                ],
+            )
         if request.url.path == "/session/ses_1/children":
             return httpx.Response(200, json=[])
         if request.url.path == "/session/ses_1/todo":
@@ -390,7 +420,22 @@ def test_runner_progress_logs_matching_session_events_and_metrics(tmp_path: Path
                 },
             )
         if request.url.path == "/session/ses_1/message":
-            return httpx.Response(200, json=[])
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "info": {"role": "assistant"},
+                        "parts": [
+                            {
+                                "type": "tool",
+                                "tool": "bash",
+                                "callID": "call_1",
+                                "state": {"status": "completed"},
+                            }
+                        ],
+                    }
+                ],
+            )
         if request.url.path == "/session/ses_1/children":
             return httpx.Response(200, json=[])
         if request.url.path == "/session/ses_1/todo":
@@ -412,15 +457,21 @@ def test_runner_progress_logs_matching_session_events_and_metrics(tmp_path: Path
 
     text = output.getvalue()
     assert outcome.passed is True
-    assert "[trial 1/1][id=cand-001][session=ses_1]" in text
-    assert "session status: busy" in text
-    assert "tool started: bash" in text
+    assert "[trial 1/1] started worktree=" in text
+    assert "branch=eval/progress-run/cand-001" not in text
+    assert "worktree=" in text
+    assert "[trial 1/1] session created session=ses_1" in text
+    assert "[trial 1/1] session status: busy" in text
+    assert "[trial 1/1] tool started: bash" in text
+    assert "[trial 1/1][id=" not in text
     assert "ses_unknown" not in text
     summary = outcome.summary["candidates"][0]["summary"]
     assert summary["token_input"] == 11
     assert summary["token_output"] == 22
     assert summary["token_reasoning"] == 3
     assert summary["tool_call_count"] == 1
+    assert summary["tool_success_count"] == 1
+    assert summary["tool_error_count"] is None
 
 
 def test_runner_event_stream_failure_warns_and_continues(tmp_path: Path) -> None:
@@ -692,20 +743,27 @@ def test_runner_records_resolved_branch_names_labels_and_worktrees(tmp_path: Pat
     assert "validation commands: 0" in output.getvalue()
     assert "progress: creating worktrees" in output.getvalue()
     worktree_table_output = output.getvalue().split("[trial 1/2]", 1)[0]
-    assert "WORKTREE" in worktree_table_output
+    assert "WORKTREE" not in worktree_table_output
     assert "CANDIDATE" not in worktree_table_output
     assert "BRANCH" not in worktree_table_output
-    assert f"1  {candidates[0]['worktree_path']}" in worktree_table_output
-    assert f"2  {candidates[1]['worktree_path']}" in worktree_table_output
+    assert f"1  {candidates[0]['worktree_path']}" not in worktree_table_output
+    assert f"2  {candidates[1]['worktree_path']}" not in worktree_table_output
     assert "1/2" not in worktree_table_output
     assert "eval/branch-run/duplicate" not in worktree_table_output
     assert "[1/2] candidate: one" not in worktree_table_output
+    assert "[trial 1/2] started worktree=" in output.getvalue()
+    assert f"branch={candidates[0]['branch_name']}" not in output.getvalue()
+    assert f"worktree={candidates[0]['worktree_path']}" in output.getvalue()
     assert "progress: running candidates" in output.getvalue()
     assert "progress: writing final summary" in output.getvalue()
     summary_output = output.getvalue().split("progress: writing final summary", 1)[1]
     assert "eval-feia run summary" in summary_output
     assert "CANDIDATE  STATUS" in summary_output
     assert "TOKEN_IN" in summary_output
+    assert "TOOLS" in summary_output
+    assert "TOOL_OK" in summary_output
+    assert "TOOL_ERR" in summary_output
+    assert "SESSION" not in summary_output
     assert "BRANCH" not in summary_output
     assert "WORKTREE" not in summary_output
     assert "eval/branch-run/duplicate" not in summary_output

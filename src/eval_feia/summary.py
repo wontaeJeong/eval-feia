@@ -42,7 +42,7 @@ def extract_opencode_metrics(
         "token_input": _int_metric(token_metrics.get("token_input")),
         "token_output": _int_metric(token_metrics.get("token_output")),
         "token_reasoning": _int_metric(token_metrics.get("token_reasoning")),
-        "tool_call_count": _count_tool_calls(messages, children),
+        **_count_tool_calls(messages, children),
         "cost_total": _float_metric(token_metrics.get("cost_total")),
     }
 
@@ -86,8 +86,8 @@ def render_markdown_summary(summary: RunSummary) -> str:
             f"Output: {summary['output_dir']}",
             "",
             "| Candidate | Status | Validation | Elapsed | Files | Additions | "
-            "Deletions | Session | Token In | Token Out | Reason |",
-            "|---|---|---|---:|---:|---:|---:|---|---:|---:|---:|",
+            "Deletions | Tools | Tool OK | Tool Errors | Token In | Token Out | Reason |",
+            "|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
         ]
     )
     for candidate in summary["candidates"]:
@@ -96,7 +96,8 @@ def render_markdown_summary(summary: RunSummary) -> str:
         lines.append(
             (
                 "| {candidate_id} | {status} | {validation} | {elapsed} | "
-                "{files} | {adds} | {dels} | {session} | {token_in} | {token_out} | "
+                "{files} | {adds} | {dels} | {tools} | {tool_success} | {tool_errors} | "
+                "{token_in} | {token_out} | "
                 "{reason} |"
             ).format(
                 candidate_id=candidate.get("candidate_id", ""),
@@ -106,7 +107,9 @@ def render_markdown_summary(summary: RunSummary) -> str:
                 files=stats.get("files_changed", 0),
                 adds=stats.get("additions", 0),
                 dels=stats.get("deletions", 0),
-                session=candidate.get("session_id") or "",
+                tools=_metric_text(stats.get("tool_call_count")),
+                tool_success=_metric_text(stats.get("tool_success_count")),
+                tool_errors=_metric_text(stats.get("tool_error_count")),
                 token_in=_metric_text(stats.get("token_input")),
                 token_out=_metric_text(stats.get("token_output")),
                 reason=_metric_text(stats.get("token_reasoning")),
@@ -130,7 +133,9 @@ def print_summary(console: Console, summary: RunSummary) -> None:
                 str(stats.get("files_changed", 0)),
                 str(stats.get("additions", 0)),
                 str(stats.get("deletions", 0)),
-                str(candidate.get("session_id") or ""),
+                _metric_text(stats.get("tool_call_count")),
+                _metric_text(stats.get("tool_success_count")),
+                _metric_text(stats.get("tool_error_count")),
                 _metric_text(stats.get("token_input")),
                 _metric_text(stats.get("token_output")),
                 _metric_text(stats.get("token_reasoning")),
@@ -146,7 +151,9 @@ def print_summary(console: Console, summary: RunSummary) -> None:
             "FILES",
             "ADDITIONS",
             "DELETIONS",
-            "SESSION",
+            "TOOLS",
+            "TOOL_OK",
+            "TOOL_ERR",
             "TOKEN_IN",
             "TOKEN_OUT",
             "REASON",
@@ -253,9 +260,9 @@ def _prefer_metrics(
     return {key: value if value is not None else fallback.get(key) for key, value in preferred.items()}
 
 
-def _count_tool_calls(*values: Any) -> int | None:
-    call_ids: set[str] = set()
-    anonymous = 0
+def _count_tool_calls(*values: Any) -> dict[str, int | None]:
+    statuses: dict[str, str | None] = {}
+    anonymous_index = 0
     for item in _walk_json(values):
         if not isinstance(item, dict):
             continue
@@ -263,11 +270,31 @@ def _count_tool_calls(*values: Any) -> int | None:
             continue
         call_id = item.get("id") or item.get("callID") or item.get("toolCallID")
         if isinstance(call_id, str) and call_id:
-            call_ids.add(call_id)
+            key = call_id
         else:
-            anonymous += 1
-    count = len(call_ids) + anonymous
-    return count if count else None
+            anonymous_index += 1
+            key = f"anonymous-{anonymous_index}"
+        statuses[key] = _tool_status(item) or statuses.get(key)
+    count = len(statuses)
+    success = sum(1 for status in statuses.values() if status == "completed")
+    errors = sum(1 for status in statuses.values() if status == "error")
+    return {
+        "tool_call_count": count if count else None,
+        "tool_success_count": success if success else None,
+        "tool_error_count": errors if errors else None,
+    }
+
+
+def _tool_status(item: dict[str, Any]) -> str | None:
+    state = item.get("state")
+    if isinstance(state, dict):
+        status = state.get("status")
+        if isinstance(status, str):
+            return status
+    if isinstance(state, str):
+        return state
+    status = item.get("status")
+    return status if isinstance(status, str) else None
 
 
 def _walk_json(value: Any) -> list[Any]:

@@ -37,7 +37,6 @@ from .manifest import (
 )
 from .opencode_client import OpencodeClient, normalize_command
 from .paths import output_dir_for_run, worktree_dir_for_run
-from .plain_table import print_plain_table
 from .progress import TrialProgressLogger, TrialProgressMetadata
 from .records import CandidateResult, CandidateSummary, RunSummary, ValidationCommandResult, ValidationResult
 from .summary import extract_opencode_metrics, parse_numstat, print_summary, write_run_summary
@@ -126,7 +125,7 @@ def run_evaluation(
         write_manifest(manifest)
 
         _print_progress(active_console, config, "creating worktrees")
-        records = _create_worktrees(config, specs, manager, manifest, active_console)
+        records = _create_worktrees(config, specs, manager, manifest)
         _print_progress(active_console, config, "running candidates")
         candidate_results = _execute_candidates(
             config,
@@ -262,7 +261,6 @@ def _create_worktrees(
     specs: list[CandidateSpec],
     manager: GitWorktreeManager,
     manifest: Manifest,
-    console: Console,
 ) -> list[CandidateManifestRecord]:
     records: list[CandidateManifestRecord] = []
     for spec in specs:
@@ -286,26 +284,7 @@ def _create_worktrees(
         manifest.upsert_candidate(record)
         write_manifest(manifest)
         records.append(record)
-    _print_created_worktrees(console, specs, records)
     return records
-
-
-def _print_created_worktrees(
-    console: Console,
-    specs: list[CandidateSpec],
-    records: list[CandidateManifestRecord],
-) -> None:
-    specs_by_id = {spec.id: spec for spec in specs}
-    rows = []
-    for record in records:
-        spec = specs_by_id[record.id]
-        rows.append(
-            (
-                str(spec.index),
-                str(record.worktree_path),
-            )
-        )
-    print_plain_table(console, ("#", "WORKTREE"), rows)
 
 
 def _print_progress(console: Console, config: EvalConfig, message: str) -> None:
@@ -378,6 +357,8 @@ def _execute_candidate(
         "token_output": None,
         "token_reasoning": None,
         "tool_call_count": None,
+        "tool_success_count": None,
+        "tool_error_count": None,
         "cost_total": None,
     }
     result_dir = record.result_dir
@@ -538,6 +519,8 @@ def _build_candidate_result(
         "token_output": stats.get("token_output"),
         "token_reasoning": stats.get("token_reasoning"),
         "tool_call_count": stats.get("tool_call_count"),
+        "tool_success_count": stats.get("tool_success_count"),
+        "tool_error_count": stats.get("tool_error_count"),
         "cost_total": stats.get("cost_total"),
         "final_output_file": "final-output.md",
     }
