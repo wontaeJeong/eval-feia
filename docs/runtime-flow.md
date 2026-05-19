@@ -48,14 +48,7 @@ sanitized, validated with `git check-ref-format --branch`, and resolved to a uni
 the requested branch or worktree path already exists. Worktree directory paths stay compact:
 the run ID is the parent directory and the candidate ID is the leaf directory.
 
-Print created worktrees as a compact CLI table:
-
-```text
-#  WORKTREE
-1  /home/user/.eval-feia/<run-id>/worktrees/command-body-test
-```
-
-Record each worktree and its actual branch name in `manifest.json` as soon as it is created. Generated artifact and worktree roots include eval-feia marker files that `clean` validates before deleting root directories.
+Record each worktree and its actual branch name in `manifest.json` as soon as it is created. Do not print a separate worktree table after creation; print each candidate's branch and worktree once when that trial starts. Generated artifact and worktree roots include eval-feia marker files that `clean` validates before deleting root directories.
 
 ## Candidate execution
 
@@ -148,9 +141,9 @@ run metadata already printed before candidate execution.
 ```text
 progress: writing final summary
 eval-feia run summary
-CANDIDATE  STATUS     VALIDATION  ELAPSED  FILES  ADDITIONS  DELETIONS  SESSION  TOKEN_IN  TOKEN_OUT  REASON
-cand-001   completed  passed      123.4s   5      120        13         ses_...  10000     1200       400
-cand-002   failed     failed      44.0s    2      44         7          ses_...  9000      800        0
+CANDIDATE  STATUS     VALIDATION  ELAPSED  FILES  ADDITIONS  DELETIONS  TOOLS  TOOL_OK  TOOL_ERR  TOKEN_IN  TOKEN_OUT  REASON
+cand-001   completed  passed      123.4s   5      120        13         8      8        0         10000     1200       400
+cand-002   failed     failed      44.0s    2      44         7          3      2        1         9000      800        0
 ```
 
 Also write `run-summary.md` and `run-summary.json` under the generated artifact output root, and copy text summaries into the durable stored result root. JSON candidate records include

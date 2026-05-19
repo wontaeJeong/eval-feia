@@ -7,8 +7,8 @@ Runs the full evaluation pipeline.
 ```bash
 eval-feia run "Fix the failing tests" --repo . --branch HEAD --attempts 1
 eval-feia run --prompt-file ./prompt.md --repo . --branch HEAD --attempts 3 --command bash --base-dir ./.eval-feia
+eval-feia run "..." --jobs 2
 eval-feia run "..." --label "foo test" --no-progress
-eval-feia run "..." --quiet
 ```
 
 Provide only one prompt source: the positional prompt argument or `--prompt-file`.
@@ -24,7 +24,7 @@ Runs, worktrees, and stored results share one base directory under the home dire
 
 `--command <name>` runs an opencode slash command. The prompt file content is sent to opencode as the command `arguments`. A leading slash is accepted in CLI input, so `--command /bash` sends `"bash"` in the HTTP request body.
 
-Live progress logging is enabled by default. `--no-progress` disables progress logs, including per-trial event logs. `--quiet` also disables progress logs while keeping the final result output.
+Live progress logging is enabled by default. `--no-progress` disables progress logs, including per-trial event logs.
 
 The opencode server must already be running. `eval-feia` does not start, stop, restart, dispose, or kill `opencode serve`.
 
@@ -36,7 +36,7 @@ The command prints:
 - run ID
 - repository path, base ref/SHA, output directory, worktree root, execution mode, and validation command count
 - progress lines for server preflight, output setup, worktree creation, candidate execution, opencode event stream updates, and summary writing
-- generated worktree table with per-candidate index and worktree path
+- one metadata line when each trial starts, including candidate ID, branch, and worktree path
 - run label when provided
 - per-candidate session IDs and status updates
 - final plain summary table without repeating run metadata already printed before execution
@@ -66,17 +66,19 @@ The command writes:
 - `5`: cleanup safety check failed
 - `130`: interrupted by user
 
-## Command: `eval-feia list`
+## Command: `eval-feia result`
 
-Lists generated run artifacts and stored result metadata from local files. This is the single listing command; the stored-result namespace has only per-run inspection commands.
+Lists generated run artifacts and stored result metadata from local files, and inspects one stored result.
 
 ```bash
-eval-feia list
-eval-feia list --limit 5
-eval-feia list --base-dir ./eval-state
-eval-feia list --output-dir ./custom-runs
-eval-feia list --json
-eval-feia list --status success --branch HEAD
+eval-feia result list
+eval-feia result list --limit 5
+eval-feia result list --base-dir ./eval-state
+eval-feia result list --json
+eval-feia result list --status success --branch HEAD
+eval-feia result show <run-id>
+eval-feia result path <run-id>
+eval-feia result file <run-id> output.txt
 ```
 
 Behavior:
@@ -88,6 +90,9 @@ Behavior:
 - Sorts newest modified runs first.
 - Treats a missing output root as an empty list.
 - Applies `--status`, `--branch`, and `--label` by filtering file-backed metadata.
+- Shows one stored result with `result show <run-id>`.
+- Prints one stored result directory with `result path <run-id>`.
+- Prints one stored result file with `result file <run-id> <file>`.
 
 Output includes run ID, created time, modified time, status, label when available, branch information when available, output directory, and result/metadata file path.
 
@@ -101,7 +106,6 @@ Flags:
 ```text
 --limit N           Show only the most recent N saved runs.
 --base-dir PATH     Eval-feia base directory whose runs are inspected.
---output-dir PATH   Generated run artifact root to inspect.
 --status STATUS     Filter runs by pending/running/success/failed/cancelled/unknown.
 --branch BRANCH     Filter runs by branch/base ref.
 --label LABEL       Filter runs by label.
@@ -142,21 +146,6 @@ MANIFEST            Manifest path for generated artifact cleanup.
 --base-dir PATH     Eval-feia base directory used with --results.
 ```
 
-## Commands: `eval-feia results show|path|file`
-
-Stored result inspection stays read-only:
-
-```bash
-eval-feia results show <run-id>
-eval-feia results path <run-id>
-eval-feia results file <run-id> output.txt
-```
-
-- `eval-feia list` is the single command for listing both generated artifacts and stored results.
-- `results show <run-id>` prints metadata plus `summary.txt`, falling back to the start of `output.txt`.
-- `results path <run-id>` prints the stored result directory.
-- `results file <run-id> [file]` prints a file inside the run directory; the default is `output.txt`. Absolute paths and `..` traversal are rejected.
-
 ## Intentionally Absent Commands
 
 These remain out of scope:
@@ -168,4 +157,6 @@ collect    # run collects automatically
 summary    # run summarizes automatically
 report
 status
+list       # result list handles saved-run listing
+results    # result handles stored result inspection
 ```
