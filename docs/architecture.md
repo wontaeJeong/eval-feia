@@ -37,7 +37,7 @@ The CLI attach mode is useful for humans but hides several behaviors that an eva
 
 ### CLI
 
-Parses direct arguments and calls the runner. Exposes `run`, read-only `list`, read-only `results` subcommands, and manifest/results cleanup through `clean`.
+Parses direct arguments and calls the runner. Exposes `run`, read-only `list`, read-only stored-result inspection under `results`, and manifest/results cleanup through `clean`.
 
 ### Runtime model builder
 
@@ -50,6 +50,10 @@ Creates and removes git worktrees. Records every generated path in the manifest.
 ### Opencode REST client
 
 Wraps HTTP calls to opencode. Enforces directory context rules.
+
+### Progress logger
+
+Subscribes to the opencode `GET /event` Server-Sent Events stream during each trial, filters events by `sessionID`, and prints concise session/tool/diff/todo/permission progress lines. Stream failures are warnings only.
 
 ### Runner
 
@@ -71,10 +75,6 @@ Writes machine-readable result files and human-readable markdown summaries. Prin
 
 Writes durable run metadata, output, summary, and log files under `<base>/<run-id>/results` or `EVAL_FEIA_RESULTS_DIR`. Powers the read-only stored-result inspection commands.
 
-### SQLite metadata index
-
-Indexes run metadata and lifecycle events in `eval-feia.sqlite3` for filtered `list` queries. Large logs and collected opencode payloads stay in files.
-
 ### Cleaner
 
 Removes manifest-recorded worktrees and result directories. Does not touch opencode server processes.
@@ -90,6 +90,7 @@ build runtime config
   -> for each worktree:
        verify effective opencode directory
        create session
+       subscribe to GET /event for live progress
        send prompt via POST /session/{id}/message, or /command when run.command is set
        wait for response or timeout
        collect session artifacts
@@ -149,7 +150,6 @@ Recommended output layout:
       index.jsonl
       metadata.json
       output.txt
-  eval-feia.sqlite3
 ```
 
 Generated worktrees use the matching compact per-run layout:
@@ -188,7 +188,6 @@ The tool must be conservative with destructive actions:
 
 - never delete a generated worktree or run artifact path not listed in the manifest, and never delete generated roots without eval-feia marker validation
 - never delete stored result history unless `clean --results` is explicitly used and the target is a validated eval-feia results root
-- never delete the SQLite metadata index unless `clean --delete-index` is explicitly used with a manifest that records the default DB path
 - never delete the repository root
 - never delete outside the configured eval-feia base unless the manifest explicitly says it is a generated git worktree
 - never kill `opencode serve`

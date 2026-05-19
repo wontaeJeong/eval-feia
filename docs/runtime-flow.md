@@ -3,7 +3,7 @@
 ## Preflight
 
 1. Build runtime config from CLI arguments.
-2. Resolve repo path, prompt path, eval-feia base, generated artifact output root, worktree root, stored result root, and SQLite DB path.
+2. Resolve repo path, prompt path, eval-feia base, generated artifact output root, worktree root, and stored result root.
 3. Check git repository.
 4. Check base ref.
 5. Read prompt file.
@@ -55,7 +55,7 @@ Print created worktrees as a compact CLI table:
 1  /home/user/.eval-feia/<run-id>/worktrees/command-body-test
 ```
 
-Record each worktree and its actual branch name in `manifest.json` as soon as it is created. Generated artifact and worktree roots include eval-feia marker files that `clean` validates before deleting root directories. When the SQLite DB path is the default database under the eval-feia base, record that DB path in the manifest for `clean --delete-index`.
+Record each worktree and its actual branch name in `manifest.json` as soon as it is created. Generated artifact and worktree roots include eval-feia marker files that `clean` validates before deleting root directories.
 
 ## Candidate execution
 
@@ -76,7 +76,9 @@ x-opencode-directory: <encoded-worktree>
 
 3. Validate session directory if returned.
 
-4. Send prompt synchronously. Without `run.command`, use:
+4. Start a best-effort progress listener for `GET /event?directory=<encoded-worktree>`. The stream is Server-Sent Events; session-specific events are filtered by `sessionID`. Stream failure prints a warning and does not fail the trial.
+
+5. Send prompt synchronously. Without `run.command`, use:
 
 ```http
 POST /session/{id}/message
@@ -90,18 +92,18 @@ POST /session/{id}/command
 x-opencode-directory: <encoded-worktree>
 ```
 
-5. If request exceeds timeout, abort:
+6. If request exceeds timeout, abort:
 
 ```http
 POST /session/{id}/abort
 x-opencode-directory: <encoded-worktree>
 ```
 
-6. Collect artifacts.
+7. Collect artifacts.
 
-7. Run local validation commands in the worktree.
+8. Run local validation commands in the worktree.
 
-8. Write candidate summary.
+9. Write candidate summary.
 
 ## Collection
 
@@ -140,15 +142,15 @@ MVP does not need to drive child sessions directly. It only needs to detect and 
 
 ## Final summary
 
-At the end of `run`, print the result table, write generated summary files, update the SQLite index, and complete the durable stored result record. Do not repeat the
+At the end of `run`, print the result table, write generated summary files, and complete the durable stored result record. Do not repeat the
 run metadata already printed before candidate execution.
 
 ```text
 progress: writing final summary
 eval-feia run summary
-CANDIDATE  BRANCH             STATUS  VALIDATION  FILES  ADDITIONS  DELETIONS  SESSION  WORKTREE
-cand-001   eval/<run-id>/foo  passed  passed      5      120        13         ses_...  /abs/...
-cand-002   eval/<run-id>/bar  failed  failed      2      44         7          ses_...  /abs/...
+CANDIDATE  STATUS     VALIDATION  ELAPSED  FILES  ADDITIONS  DELETIONS  SESSION  TOKEN_IN  TOKEN_OUT  REASON
+cand-001   completed  passed      123.4s   5      120        13         ses_...  10000     1200       400
+cand-002   failed     failed      44.0s    2      44         7          ses_...  9000      800        0
 ```
 
 Also write `run-summary.md` and `run-summary.json` under the generated artifact output root, and copy text summaries into the durable stored result root. JSON candidate records include

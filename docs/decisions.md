@@ -20,9 +20,9 @@ Rationale: the synchronous endpoint sends a message and waits for a response. As
 
 ## ADR-004: Minimal command surface
 
-Decision: MVP exposes a compact command surface: `run`, read-only `list`, read-only `results` subcommands, and manifest/results cleanup through `clean`.
+Decision: MVP exposes a compact command surface: `run`, read-only `list`, read-only stored-result inspection under `results`, and manifest/results cleanup through `clean`.
 
-Rationale: `run` already includes execution, collection, and summary. `list` discovers generated run artifacts and queries the local SQLite metadata index; `results` subcommands read durable local file-backed history without contacting opencode. `clean` keeps destructive behavior explicit with either a manifest argument or `--results`.
+Rationale: `run` already includes execution, collection, and summary. `list` discovers generated run artifacts and stored result metadata from local files; `results` subcommands read individual durable result files without contacting opencode. `clean` keeps destructive behavior explicit with either a manifest argument or `--results`.
 
 ## ADR-005: Manifest-based cleanup
 
@@ -36,8 +36,8 @@ Decision: Every worktree-specific request carries a directory context.
 
 Rationale: the server process cwd is not sufficient when one server handles multiple worktrees. The effective working directory must be request-specific.
 
-## ADR-007: SQLite is a metadata index, not the artifact store
+## ADR-007: File-backed metadata stays authoritative
 
-Decision: generated artifacts and durable stored-result files remain authoritative, while SQLite indexes run metadata and lifecycle events for filtered `list` queries.
+Decision: generated artifacts and durable stored-result files remain authoritative. Listing and filtering read those files directly instead of using a separate metadata store.
 
-Rationale: large logs and opencode payloads are better kept as files. SQLite improves local querying without making cleanup depend on opaque database state.
+Rationale: large logs and opencode payloads are already files. Keeping listing file-backed avoids a second source of truth and keeps cleanup manifest-based.
