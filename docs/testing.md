@@ -48,18 +48,16 @@ Verify:
 - generated worktree paths use the run directory plus candidate-id leaf, not repeated base
   ref/SHA/branch metadata
 
-### Stored results and SQLite index
+### Stored results and file-backed listing
 
 Verify:
 
 - `run` creates durable metadata, output, summary, stdout, stderr, and run logs
-- `results list`, `results show`, `results path`, and `results file` read stored results without contacting opencode
-- SQLite schema version 1 creates `runs` and `run_events`
-- SQLite list filters support status, branch, and label
-- saved artifact listing backfills an empty SQLite index idempotently
-- `--base-dir` and `EVAL_FEIA_BASE_DIR` derive per-run output, worktrees, results, and default SQLite paths from one base
-- `clean` requires generated-root markers and marks deleted generated outputs as missing in SQLite metadata
-- `clean --delete-index` deletes only the manifest-recorded default DB and rejects custom `EVAL_FEIA_DB_PATH`
+- `list` reads generated artifacts and stored result metadata without contacting opencode
+- `results show`, `results path`, and `results file` read individual stored results without contacting opencode
+- file-backed list filters support status, branch, and label
+- `--base-dir` and `EVAL_FEIA_BASE_DIR` derive per-run output, worktrees, and results from one base
+- `clean` requires generated-root markers before deleting manifest-recorded generated outputs
 
 ### Runner behavior
 
@@ -112,13 +110,9 @@ eval-feia list
 
 eval-feia list --status success --branch HEAD
 
-eval-feia results list
-
 eval-feia results show <run-id>
 
 eval-feia clean ~/.eval-feia/<run-id>/output/manifest.json --dry-run
-
-eval-feia clean ~/.eval-feia/<run-id>/output/manifest.json --delete-index --dry-run
 
 eval-feia clean --results --dry-run
 

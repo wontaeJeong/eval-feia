@@ -5,19 +5,20 @@
 Each CLI `run` derives state from one eval-feia base directory under the home directory. The base defaults to `$HOME/.eval-feia`, or `EVAL_FEIA_BASE_DIR` when set. Durable records are written under `<base>/<run-id>/results`, unless `EVAL_FEIA_RESULTS_DIR` intentionally overrides only the results root:
 
 ```text
-results/
+<base>/<run-id>/results/
   .eval-feia-results
   index.jsonl
-  runs/<run-id>/
-    metadata.json
-    output.txt
-    stdout.log
-    stderr.log
-    run.log
-    summary.txt
+  metadata.json
+  output.txt
+  stdout.log
+  stderr.log
+  run.log
+  summary.txt
 ```
 
-`metadata.json` keeps stable keys for durable local history and for SQLite index backfill:
+When `EVAL_FEIA_RESULTS_DIR` points at a shared results root instead of the default per-run base layout, records are stored under `runs/<run-id>/` below that root.
+
+`metadata.json` keeps stable keys for durable local history and file-backed listing:
 
 ```json
 {
@@ -57,7 +58,6 @@ The log files are local debugging artifacts and may contain command output or er
   },
   "output_dir": "/home/user/.eval-feia/20260514-123456-a1b2c3/output",
   "worktree_root": "/home/user/.eval-feia/20260514-123456-a1b2c3/worktrees",
-  "db_path": "/home/user/.eval-feia/eval-feia.sqlite3",
   "candidates": [
     {
       "id": "command-body-test",
@@ -172,19 +172,8 @@ unexpected_error
 }
 ```
 
-## SQLite metadata index
+## File-backed listing metadata
 
-Generated artifact files and durable stored-result files remain authoritative. The local SQLite database is a query index stored at
-`<base>/eval-feia.sqlite3` by default, or at `EVAL_FEIA_DB_PATH` when that environment variable is set.
+Generated artifact files and durable stored-result files remain authoritative. `eval-feia list` reads local metadata files directly, deduplicates entries by run ID, and filters by status, branch, or label without a separate database.
 
-Default DB paths are recorded in new run manifests so `clean --delete-index` can delete them through the same manifest validation flow. Custom `EVAL_FEIA_DB_PATH` databases are not deleted by `clean --delete-index`; remove them manually when needed.
-
-Schema versioning uses `PRAGMA user_version`. Version 1 contains:
-
-- `runs`: one row per run with run ID, timestamps, status (`pending`, `running`,
-  `success`, `failed`, `cancelled`), cwd/repo/branch/label, command/prompt metadata,
-  output/result/summary paths, exit code, duration, error message, and `metadata_json`.
-- `run_events`: append-only run lifecycle messages keyed by `run_id`.
-
-The DB enables WAL, `busy_timeout`, and foreign keys on access. Large stdout/stderr or
-collected opencode payloads are not stored in SQLite; only paths and metadata are indexed.
+Large stdout/stderr logs and collected opencode payloads stay as files under each run's generated output and durable result directories.
