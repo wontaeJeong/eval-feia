@@ -18,9 +18,8 @@ Build a local CLI tool that:
 6. Writes durable stored result history under the same base's per-run `results/` root unless `EVAL_FEIA_RESULTS_DIR` intentionally overrides it.
 7. Prints live trial progress from opencode's event stream when enabled.
 8. Prints a final result summary automatically at the end of `run`.
-9. Lists generated run artifacts and stored result metadata through the read-only `list` command.
-10. Inspects durable stored results through read-only `results` subcommands.
-11. Cleans generated worktrees and result files only through manifest-based `clean`; stored results use explicit `clean --results`.
+9. Lists generated run artifacts, stored result metadata, and individual stored result files through the read-only `result` command namespace.
+10. Cleans generated worktrees and result files only through manifest-based `clean`; stored results use explicit `clean --results`.
 
 ## Non-goals
 
@@ -63,23 +62,17 @@ eval-feia run --prompt-file prompt.md --repo . --branch HEAD --attempts 1
 5. User can inspect saved runs:
 
 ```bash
-eval-feia list
-eval-feia list --limit 5
-eval-feia list --base-dir ./eval-state
-eval-feia list --output-dir ./custom-runs
-eval-feia list --json
-eval-feia list --status success --branch HEAD
+eval-feia result list
+eval-feia result list --limit 5
+eval-feia result list --base-dir ./eval-state
+eval-feia result list --json
+eval-feia result list --status success --branch HEAD
+eval-feia result show <run-id>
+eval-feia result path <run-id>
+eval-feia result file <run-id> output.txt
 ```
 
-6. User can inspect durable stored results:
-
-```bash
-eval-feia results show <run-id>
-eval-feia results path <run-id>
-eval-feia results file <run-id> output.txt
-```
-
-7. User optionally removes generated resources:
+6. User optionally removes generated resources:
 
 ```bash
 eval-feia clean ~/.eval-feia/<run-id>/output/manifest.json
@@ -92,19 +85,15 @@ eval-feia clean --results
 
 `run` performs preflight, worktree creation, REST execution, event-stream progress logging, collection, local validation, final summary output, and stored result persistence.
 
-### `list`
+### `result`
 
-`list` prints generated run artifacts from `<base>/<run-id>/output` and stored result metadata from `<base>/<run-id>/results`, including custom bases passed with `--base-dir` and custom output roots passed with `--output-dir`. The command is read-only and tolerates missing or partial metadata. `--status`, `--branch`, and `--label` filter local file metadata.
+`result list` prints generated run artifacts from `<base>/<run-id>/output` and stored result metadata from `<base>/<run-id>/results`, including custom bases passed with `--base-dir`. The command is read-only and tolerates missing or partial metadata. `--status`, `--branch`, and `--label` filter local file metadata. `result show`, `result path`, and `result file` inspect stored local result history without contacting opencode.
 
 ### `clean`
 
 `clean <manifest>` removes generated worktrees and result artifacts recorded in a manifest. It never kills `opencode serve` and never removes durable stored result history.
 
 `clean --results` removes the validated durable stored-results root.
-
-### `results` subcommands
-
-`results show <run-id>`, `results path <run-id>`, and `results file <run-id> [file]` inspect stored local result history without contacting opencode. `list` is the only listing command.
 
 ## Acceptance criteria
 
@@ -121,8 +110,7 @@ A run is acceptable when all of the following are true:
 - Generated artifacts are written under the configured eval-feia base's per-run `output/` root.
 - Durable stored results are written under the same base's per-run `results/` root unless explicitly overridden.
 - Live progress uses `GET /event` and filters events by session ID when progress logging is enabled.
-- `list` works for generated run artifacts, stored result metadata, and file-backed filters.
-- `results` inspection subcommands work without contacting opencode.
+- `result` works for generated run artifacts, stored result metadata, file-backed filters, and stored result inspection without contacting opencode.
 - `clean` only removes paths listed in the manifest after generated-root marker validation; `clean --results` is required for stored results.
 
 ## Success metrics

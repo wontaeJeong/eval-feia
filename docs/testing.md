@@ -53,8 +53,8 @@ Verify:
 Verify:
 
 - `run` creates durable metadata, output, summary, stdout, stderr, and run logs
-- `list` reads generated artifacts and stored result metadata without contacting opencode
-- `results show`, `results path`, and `results file` read individual stored results without contacting opencode
+- `result list` reads generated artifacts and stored result metadata without contacting opencode
+- `result show`, `result path`, and `result file` read individual stored results without contacting opencode
 - file-backed list filters support status, branch, and label
 - `--base-dir` and `EVAL_FEIA_BASE_DIR` derive per-run output, worktrees, and results from one base
 - `clean` requires generated-root markers before deleting manifest-recorded generated outputs
@@ -106,11 +106,11 @@ opencode serve --hostname 127.0.0.1 --port 4096
 
 eval-feia run --prompt-file examples/prompt.md --repo .
 
-eval-feia list
+eval-feia result list
 
-eval-feia list --status success --branch HEAD
+eval-feia result list --status success --branch HEAD
 
-eval-feia results show <run-id>
+eval-feia result show <run-id>
 
 eval-feia clean ~/.eval-feia/<run-id>/output/manifest.json --dry-run
 

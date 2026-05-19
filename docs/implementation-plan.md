@@ -62,9 +62,9 @@ Implemented `run` orchestration:
 
 Implemented:
 
-- read-only `list` for generated run artifacts and stored result metadata
-- file-backed `list` filters for status, branch, and label
-- read-only `results show`, `results path`, and `results file` for durable stored result inspection
+- read-only `result list` for generated run artifacts and stored result metadata
+- file-backed `result list` filters for status, branch, and label
+- read-only `result show`, `result path`, and `result file` for durable stored result inspection
 
 ## Phase 6: Clean command
 

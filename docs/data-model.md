@@ -174,6 +174,6 @@ unexpected_error
 
 ## File-backed listing metadata
 
-Generated artifact files and durable stored-result files remain authoritative. `eval-feia list` reads local metadata files directly, deduplicates entries by run ID, and filters by status, branch, or label without a separate database.
+Generated artifact files and durable stored-result files remain authoritative. `eval-feia result list` reads local metadata files directly, deduplicates entries by run ID, and filters by status, branch, or label without a separate database.
 
 Large stdout/stderr logs and collected opencode payloads stay as files under each run's generated output and durable result directories.

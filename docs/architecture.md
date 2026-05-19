@@ -37,7 +37,7 @@ The CLI attach mode is useful for humans but hides several behaviors that an eva
 
 ### CLI
 
-Parses direct arguments and calls the runner. Exposes `run`, read-only `list`, read-only stored-result inspection under `results`, and manifest/results cleanup through `clean`.
+Parses direct arguments and calls the runner. Exposes `run`, read-only `result`, and manifest/results cleanup through `clean`.
 
 ### Runtime model builder
 

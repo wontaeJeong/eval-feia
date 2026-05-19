@@ -20,9 +20,9 @@ Rationale: the synchronous endpoint sends a message and waits for a response. As
 
 ## ADR-004: Minimal command surface
 
-Decision: MVP exposes a compact command surface: `run`, read-only `list`, read-only stored-result inspection under `results`, and manifest/results cleanup through `clean`.
+Decision: MVP exposes a compact command surface: `run`, read-only `result`, and manifest/results cleanup through `clean`.
 
-Rationale: `run` already includes execution, collection, and summary. `list` discovers generated run artifacts and stored result metadata from local files; `results` subcommands read individual durable result files without contacting opencode. `clean` keeps destructive behavior explicit with either a manifest argument or `--results`.
+Rationale: `run` already includes execution, collection, and summary. `result` discovers generated run artifacts, stored result metadata, and individual durable result files without contacting opencode. `clean` keeps destructive behavior explicit with either a manifest argument or `--results`.
 
 ## ADR-005: Manifest-based cleanup
 
