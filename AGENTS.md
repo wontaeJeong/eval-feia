@@ -15,9 +15,9 @@ The MVP is REST-only. Do not implement execution by shelling out to `opencode ru
 5. For GET/HEAD requests, prefer a `directory` query parameter with the directory URL-encoded exactly once.
 6. Use absolute paths for worktree directories.
 7. Validate returned session directory/path information when available.
-8. Use manifest-based cleanup for generated worktrees/run artifacts; generated roots must be marker-validated before deletion; stored result history cleanup must require an explicit `clean --results` action and a validated eval-feia results root; SQLite DB deletion must require explicit `clean --delete-index` with a manifest-recorded default DB path.
+8. Use manifest-based cleanup for generated worktrees/run artifacts; generated roots must be marker-validated before deletion; stored result history cleanup must require an explicit `clean --results` action and a validated eval-feia results root.
 9. `run` must perform collection and final summary automatically.
-10. Keep the CLI surface explicit and minimal: `run`, read-only `list`, read-only stored-result inspection under `results` (`list`, `show`, `path`, `file`), and cleanup through `clean` for MVP.
+10. Keep the CLI surface explicit and minimal: `run`, read-only `list`, read-only stored-result inspection under `results` (`show`, `path`, `file`), and cleanup through `clean` for MVP.
 
 ## Source constraints
 
@@ -58,7 +58,6 @@ eval-feia/
     collector.py
     summary.py
     results_store.py
-    storage.py
     clean.py
     plain_table.py
     errors.py
@@ -77,7 +76,7 @@ eval-feia/
 - Use typed dataclasses or pydantic models for config, manifest, and run result records.
 - Never log secrets, Authorization headers, provider API keys, or full auth config.
 - Include run IDs and candidate IDs in logs.
-- Generated worktree/run artifact deletion must go through manifest and marker validation; stored result history deletion must require explicit `clean --results` and a validated eval-feia results root; SQLite DB deletion must require explicit `clean --delete-index` and a manifest-recorded default DB path.
+- Generated worktree/run artifact deletion must go through manifest and marker validation; stored result history deletion must require explicit `clean --results` and a validated eval-feia results root.
 
 ## Git history
 
@@ -104,17 +103,21 @@ For each candidate worktree:
    - body includes `parts: [{ "type": "text", "text": <prompt> }]`
    - when command mode is configured, use `POST /session/{id}/command` instead
    - command body includes `command` and string `arguments: <prompt>`; do not include `parts`
-4. Collect:
+4. Stream progress:
+   - `GET /event?directory=<encoded-worktree>`
+   - filter SSE events by `sessionID`
+   - warn and continue if the stream fails
+5. Collect:
    - `GET /session/{id}?directory=<encoded-worktree>`
    - `GET /session/{id}/message?directory=<encoded-worktree>`
    - `GET /session/{id}/children?directory=<encoded-worktree>` recursively
    - `GET /session/{id}/todo?directory=<encoded-worktree>`
    - `GET /session/{id}/diff?directory=<encoded-worktree>`
    - `GET /file/status?directory=<encoded-worktree>`
-5. Validate locally:
+6. Validate locally:
    - run configured validation commands in the worktree
    - capture stdout/stderr/exit code
-6. Write result files.
+7. Write result files.
 
 ## Testing expectations
 
@@ -130,7 +133,7 @@ Tests must cover:
 - Final summary generation.
 - Generated run artifact listing behavior with `list`.
 - Stored results inspection behavior.
-- SQLite metadata indexing, filtering, and cleanup safety.
+- File-backed listing filters and cleanup safety.
 
 ## Do not implement
 

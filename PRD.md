@@ -14,13 +14,13 @@ Build a local CLI tool that:
 2. Runs the same evaluation prompt against each worktree through an existing `opencode serve` HTTP endpoint.
 3. Ensures each opencode request is scoped to the correct worktree directory.
 4. Collects messages, session metadata, child sessions, todo state, diffs, file status, validation logs, and final assistant output.
-5. Writes structured run artifacts under the configured eval-feia base's `runs/` root.
-6. Writes durable stored result history under the same base's `results/` root unless `EVAL_FEIA_RESULTS_DIR` intentionally overrides it.
-7. Indexes run metadata in a local SQLite database for filtered listing.
+5. Writes structured run artifacts under the configured eval-feia base's per-run `output/` root.
+6. Writes durable stored result history under the same base's per-run `results/` root unless `EVAL_FEIA_RESULTS_DIR` intentionally overrides it.
+7. Prints live trial progress from opencode's event stream when enabled.
 8. Prints a final result summary automatically at the end of `run`.
-9. Lists generated run artifacts through the read-only `list` command.
+9. Lists generated run artifacts and stored result metadata through the read-only `list` command.
 10. Inspects durable stored results through read-only `results` subcommands.
-11. Cleans generated worktrees and result files only through manifest-based `clean`; stored results use explicit `clean --results`, and default SQLite DB deletion requires `clean --delete-index` with a manifest.
+11. Cleans generated worktrees and result files only through manifest-based `clean`; stored results use explicit `clean --results`.
 
 ## Non-goals
 
@@ -67,14 +67,13 @@ eval-feia list
 eval-feia list --limit 5
 eval-feia list --base-dir ./eval-state
 eval-feia list --output-dir ./custom-runs
-EVAL_FEIA_DB_PATH=/tmp/eval-feia.sqlite3 eval-feia list --json
+eval-feia list --json
 eval-feia list --status success --branch HEAD
 ```
 
 6. User can inspect durable stored results:
 
 ```bash
-eval-feia results list
 eval-feia results show <run-id>
 eval-feia results path <run-id>
 eval-feia results file <run-id> output.txt
@@ -84,7 +83,6 @@ eval-feia results file <run-id> output.txt
 
 ```bash
 eval-feia clean ~/.eval-feia/<run-id>/output/manifest.json
-eval-feia clean ~/.eval-feia/<run-id>/output/manifest.json --delete-index
 eval-feia clean --results
 ```
 
@@ -92,23 +90,21 @@ eval-feia clean --results
 
 ### `run`
 
-`run` performs preflight, worktree creation, REST execution, collection, local validation, final summary output, stored result persistence, and SQLite metadata indexing.
+`run` performs preflight, worktree creation, REST execution, event-stream progress logging, collection, local validation, final summary output, and stored result persistence.
 
 ### `list`
 
-`list` prints generated run artifacts from `<base>/<run-id>/output` by default, including custom bases passed with `--base-dir` and custom output roots passed with `--output-dir`. The command is read-only and tolerates missing or partial metadata.
-
-When `EVAL_FEIA_DB_PATH` is set or `--status`, `--branch`, or `--label` is provided, `list` reads the local SQLite metadata index instead and can backfill it from existing file outputs.
+`list` prints generated run artifacts from `<base>/<run-id>/output` and stored result metadata from `<base>/<run-id>/results`, including custom bases passed with `--base-dir` and custom output roots passed with `--output-dir`. The command is read-only and tolerates missing or partial metadata. `--status`, `--branch`, and `--label` filter local file metadata.
 
 ### `clean`
 
 `clean <manifest>` removes generated worktrees and result artifacts recorded in a manifest. It never kills `opencode serve` and never removes durable stored result history.
 
-`clean <manifest> --delete-index` deletes only the manifest-recorded default SQLite database under the eval-feia base. Custom `EVAL_FEIA_DB_PATH` databases are never deleted automatically. `clean --results` removes the validated durable stored-results root.
+`clean --results` removes the validated durable stored-results root.
 
 ### `results` subcommands
 
-`results list`, `results show <run-id>`, `results path <run-id>`, and `results file <run-id> [file]` inspect stored local result history without contacting opencode.
+`results show <run-id>`, `results path <run-id>`, and `results file <run-id> [file]` inspect stored local result history without contacting opencode. `list` is the only listing command.
 
 ## Acceptance criteria
 
@@ -122,18 +118,18 @@ A run is acceptable when all of the following are true:
 - The tool waits until each execution is complete or times out.
 - The tool collects messages, session info, children, todo state, diff, file status, and local git diff.
 - The console output includes the stored result directory before execution and a final plain summary table after execution.
-- Generated artifacts are written under the configured eval-feia base's `runs/` root.
-- Durable stored results are written under the same base's `results/` root unless explicitly overridden.
-- SQLite run metadata is recorded when the index can be opened; index failures are surfaced as warnings during `run` and exit code `6` during indexed `list`.
-- `list` works for generated run artifacts and SQLite filters.
+- Generated artifacts are written under the configured eval-feia base's per-run `output/` root.
+- Durable stored results are written under the same base's per-run `results/` root unless explicitly overridden.
+- Live progress uses `GET /event` and filters events by session ID when progress logging is enabled.
+- `list` works for generated run artifacts, stored result metadata, and file-backed filters.
 - `results` inspection subcommands work without contacting opencode.
-- `clean` only removes paths listed in the manifest after generated-root marker validation; `clean --results` is required for stored results, and `clean --delete-index` is required for the manifest-recorded default SQLite DB.
+- `clean` only removes paths listed in the manifest after generated-root marker validation; `clean --results` is required for stored results.
 
 ## Success metrics
 
 - Reproducible generated artifact directories.
 - Durable local stored result history.
-- Queryable local run metadata index.
-- No accidental deletion outside marker-validated `.eval-feia` generated roots, recorded git worktrees, validated stored result roots, or manifest-recorded default DB files.
+- Queryable local run metadata from file-backed artifacts.
+- No accidental deletion outside marker-validated `.eval-feia` generated roots, recorded git worktrees, or validated stored result roots.
 - No hidden dependency on subprocess attach semantics.
-- Clear failure messages for server unavailability, wrong directory context, REST error, permission wait, timeout, validation failure, and storage inspection failure.
+- Clear failure messages for server unavailability, wrong directory context, REST error, permission wait, timeout, validation failure, and stored result inspection failure.
