@@ -14,15 +14,6 @@ from .results_store import (
     RESULTS_OWNED_ENTRIES,
     configured_results_root,
 )
-from .storage import (
-    DB_ENV_VAR,
-    DB_FILENAME,
-    db_path_for_output_root,
-    default_db_path,
-    delete_db,
-    format_storage_error,
-    mark_output_missing,
-)
 
 
 GENERATED_MARKER = ".eval-feia-generated"
@@ -66,26 +57,9 @@ def clean_resources(
     dry_run: bool = False,
     force: bool = False,
     use_git: bool = True,
-    remove_db: bool = False,
 ) -> CleanupResult:
     manifest = load_manifest(manifest_path)
     actions = plan_cleanup(manifest, manifest_path)
-    output_root = _output_root_for_manifest(manifest)
-    db_path = _db_path_for_manifest_index(manifest, output_root)
-    if remove_db:
-        safe_db_paths = _safe_default_db_paths(output_root)
-        current_default_db_path = default_db_path(output_root)
-        if current_default_db_path not in safe_db_paths:
-            raise CleanupSafetyError(
-                f"refusing to delete {DB_ENV_VAR} override from clean --delete-index; "
-                f"delete it manually if intended: {current_default_db_path}"
-            )
-        if manifest.db_path is None:
-            raise CleanupSafetyError("manifest does not record a SQLite database path")
-        recorded_db_path = manifest.db_path.expanduser().resolve(strict=False)
-        if recorded_db_path not in safe_db_paths:
-            raise CleanupSafetyError("manifest SQLite database path must match the eval-feia base database")
-        actions.append(CleanupAction("database", recorded_db_path))
     errors: list[str] = []
     warnings: list[str] = []
     if dry_run:
@@ -96,47 +70,13 @@ def clean_resources(
         try:
             if action.kind == "worktree":
                 _remove_worktree(manager, action.path, force=force, use_git=use_git)
-            elif action.kind == "database":
-                delete_db(action.path)
             elif action.path.exists():
                 shutil.rmtree(action.path)
         except Exception as exc:
             errors.append(f"failed to remove {action.path}: {exc}")
             if not force:
                 break
-    if not errors and not remove_db:
-        try:
-            mark_output_missing(db_path, run_id=manifest.run_id, output_dir=manifest.output_dir)
-        except Exception as exc:
-            warnings.append(f"failed to update SQLite index: {format_storage_error(exc, db_path)}")
     return CleanupResult(actions, errors, dry_run=False, warnings=warnings)
-
-
-def _db_path_for_manifest_index(manifest: Manifest, output_root: Path) -> Path:
-    configured_path = default_db_path(output_root)
-    if configured_path not in _safe_default_db_paths(output_root):
-        return configured_path
-    if manifest.db_path is None:
-        return configured_path
-    recorded_db_path = manifest.db_path.expanduser().resolve(strict=False)
-    if recorded_db_path in _safe_default_db_paths(output_root):
-        return recorded_db_path
-    return configured_path
-
-
-def _output_root_for_manifest(manifest: Manifest) -> Path:
-    output_dir = manifest.output_dir.expanduser().resolve(strict=False)
-    if output_dir.name == OUTPUT_DIR_NAME and output_dir.parent.name == manifest.run_id:
-        return output_dir.parent.parent
-    return output_dir.parent
-
-
-def _safe_default_db_paths(output_root: Path) -> set[Path]:
-    resolved_output_root = output_root.expanduser().resolve(strict=False)
-    return {
-        db_path_for_output_root(output_root),
-        resolved_output_root / DB_FILENAME,
-    }
 
 
 def plan_results_cleanup(results_root: Path | None = None) -> list[CleanupAction]:

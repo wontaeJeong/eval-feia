@@ -11,6 +11,7 @@ from rich.console import Console
 from .manifest import Manifest, load_manifest
 from .paths import OUTPUT_DIR_NAME, RUNS_DIR_NAME, output_root_for_base
 from .plain_table import print_plain_table
+from .results_store import list_run_metadata
 
 
 @dataclass(slots=True)
@@ -18,6 +19,7 @@ class SavedRun:
     run_id: str
     created_at: str
     modified_at: str
+    status: str
     label: str | None
     branches: list[str]
     output_path: Path
@@ -31,6 +33,7 @@ class SavedRun:
             "run_id": self.run_id,
             "created_at": self.created_at,
             "modified_at": self.modified_at,
+            "status": self.status,
             "label": self.label,
             "branches": self.branches,
             "output_path": str(self.output_path),
@@ -47,12 +50,23 @@ def default_runs_root(base_dir: Path | None = None) -> Path:
     return root.resolve(strict=False)
 
 
-def list_saved_runs(*, output_root: Path | None = None, limit: int | None = None) -> list[SavedRun]:
+def list_saved_runs(
+    *,
+    output_root: Path | None = None,
+    limit: int | None = None,
+    status: str | None = None,
+    branch: str | None = None,
+    label: str | None = None,
+    include_results: bool = True,
+    include_configured_results: bool = False,
+) -> list[SavedRun]:
     root = (output_root or default_runs_root()).expanduser().resolve(strict=False)
-    if not root.is_dir():
-        return []
-
-    runs = [_read_run(run_dir) for run_dir in _iter_run_output_dirs(root)]
+    runs = [_read_run(run_dir) for run_dir in _iter_run_output_dirs(root)] if root.is_dir() else []
+    if include_results:
+        runs = _dedupe_runs(
+            [*runs, *_read_stored_runs(root, include_configured=include_configured_results)]
+        )
+    runs = [run for run in runs if _matches_filters(run, status=status, branch=branch, label=label)]
     runs.sort(key=lambda run: run._modified_timestamp, reverse=True)
     if limit is not None:
         return runs[:limit]
@@ -70,9 +84,13 @@ def _iter_run_output_dirs(root: Path) -> list[Path]:
         output_dir = entry / OUTPUT_DIR_NAME
         if output_dir.is_dir():
             run_dirs.append(output_dir)
-        else:
+        elif _has_run_artifacts(entry):
             run_dirs.append(entry)
     return run_dirs
+
+
+def _has_run_artifacts(path: Path) -> bool:
+    return any((path / name).exists() for name in ("manifest.json", "run-summary.json", "candidates"))
 
 
 def print_saved_runs(console: Console, runs: list[SavedRun]) -> None:
@@ -86,12 +104,13 @@ def print_saved_runs(console: Console, runs: list[SavedRun]) -> None:
 
     print_plain_table(
         console,
-        ("RUN", "CREATED", "MODIFIED", "LABEL", "BRANCH", "OUTPUT", "RESULT"),
+        ("RUN", "CREATED", "MODIFIED", "STATUS", "LABEL", "BRANCH", "OUTPUT", "RESULT"),
         [
             (
                 run.run_id,
                 run.created_at,
                 run.modified_at,
+                run.status,
                 run.label or "",
                 _format_branches(run.branches),
                 str(run.output_path),
@@ -119,6 +138,7 @@ def _read_run(run_dir: Path) -> SavedRun:
     modified_at = _format_timestamp(modified_timestamp)
     run_id = _run_id(run_dir, manifest, summary)
     created_at = _created_at(run_dir, manifest, modified_timestamp)
+    status = _status(manifest, summary, candidate_results)
     label = _label(manifest, summary)
     branches = _branches(manifest, summary, candidate_results)
     output_path = _output_path(run_dir, manifest, summary)
@@ -130,6 +150,7 @@ def _read_run(run_dir: Path) -> SavedRun:
         run_id=run_id,
         created_at=created_at,
         modified_at=modified_at,
+        status=status,
         label=label,
         branches=branches,
         output_path=output_path,
@@ -138,6 +159,95 @@ def _read_run(run_dir: Path) -> SavedRun:
         warning=warning,
         _modified_timestamp=modified_timestamp,
     )
+
+
+def _read_stored_runs(root: Path, *, include_configured: bool) -> list[SavedRun]:
+    records = _stored_records(root, include_configured=include_configured)
+    runs: list[SavedRun] = []
+    for record in records:
+        run = _stored_run(record)
+        if run is not None:
+            runs.append(run)
+    return runs
+
+
+def _stored_records(root: Path, *, include_configured: bool) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    sources: list[Path | None] = [root]
+    if include_configured:
+        sources.append(None)
+    for source in sources:
+        try:
+            current = list_run_metadata(source) if source is not None else list_run_metadata()
+        except Exception:
+            continue
+        for record in current:
+            run_id = record.get("run_id")
+            if not isinstance(run_id, str) or not run_id or run_id in seen:
+                continue
+            seen.add(run_id)
+            records.append(record)
+    return records
+
+
+def _stored_run(record: dict[str, Any]) -> SavedRun | None:
+    run_id = record.get("run_id")
+    if not isinstance(run_id, str) or not run_id:
+        return None
+    output_dir = record.get("output_dir")
+    output_path = Path(str(output_dir)).expanduser().resolve(strict=False) if output_dir else Path(run_id)
+    metadata_path = output_path / "metadata.json"
+    summary_path = output_path / "summary.txt"
+    result_path = summary_path if summary_path.exists() else output_path / "output.txt"
+    if not result_path.exists():
+        result_path = metadata_path if metadata_path.exists() else output_path
+    modified_timestamp = _latest_mtime([output_path, metadata_path, summary_path, result_path])
+    branch = record.get("branch")
+    return SavedRun(
+        run_id=run_id,
+        created_at=str(record.get("created_at") or ""),
+        modified_at=_format_timestamp(modified_timestamp),
+        status=str(record.get("status") or "unknown"),
+        label=_string_or_none(record.get("label")),
+        branches=[branch] if isinstance(branch, str) and branch else [],
+        output_path=output_path,
+        result_path=result_path,
+        metadata_path=metadata_path if metadata_path.exists() else None,
+        warning=None,
+        _modified_timestamp=modified_timestamp,
+    )
+
+
+def _dedupe_runs(runs: list[SavedRun]) -> list[SavedRun]:
+    by_id: dict[str, SavedRun] = {}
+    for run in runs:
+        existing = by_id.get(run.run_id)
+        if existing is None:
+            by_id[run.run_id] = run
+            continue
+        if existing.status in {"", "unknown"} and run.status:
+            existing.status = run.status
+        if existing.label is None and run.label is not None:
+            existing.label = run.label
+        existing.branches = _unique([*existing.branches, *run.branches])
+    return list(by_id.values())
+
+
+def _matches_filters(
+    run: SavedRun,
+    *,
+    status: str | None,
+    branch: str | None,
+    label: str | None,
+) -> bool:
+    if status is not None and run.status != status:
+        return False
+    if branch is not None and branch not in run.branches:
+        return False
+    if label is not None and run.label != label:
+        return False
+    return True
 
 
 def _load_manifest(path: Path) -> tuple[Manifest | None, str | None]:
@@ -190,6 +300,30 @@ def _created_at(run_dir: Path, manifest: Manifest | None, fallback_timestamp: fl
         return _format_timestamp(run_dir.stat().st_mtime)
     except OSError:
         return _format_timestamp(fallback_timestamp)
+
+
+def _status(
+    manifest: Manifest | None,
+    summary: dict[str, Any] | None,
+    candidate_results: list[dict[str, Any]],
+) -> str:
+    if summary is not None and isinstance(summary.get("passed"), bool):
+        return "success" if summary["passed"] else "failed"
+    candidate_statuses: list[str] = []
+    if manifest is not None:
+        candidate_statuses.extend(record.status for record in manifest.candidates if record.status)
+    candidate_statuses.extend(
+        str(result.get("status")) for result in candidate_results if result.get("status")
+    )
+    if not candidate_statuses:
+        return "unknown"
+    if any(status in {"failed", "timeout", "aborted"} for status in candidate_statuses):
+        return "failed"
+    if any(status == "running" for status in candidate_statuses):
+        return "running"
+    if all(status in {"passed", "completed"} for status in candidate_statuses):
+        return "success"
+    return candidate_statuses[0]
 
 
 def _label(manifest: Manifest | None, summary: dict[str, Any] | None) -> str | None:
@@ -300,6 +434,10 @@ def _unique(values: list[str]) -> list[str]:
         seen.add(value)
         unique_values.append(value)
     return unique_values
+
+
+def _string_or_none(value: Any) -> str | None:
+    return value if isinstance(value, str) and value else None
 
 
 def _join_warnings(warnings: list[str | None]) -> str | None:

@@ -17,7 +17,7 @@ from rich.console import Console
 from .clean import write_generated_marker
 from .collector import collect_candidate
 from .config import EvalConfig, EvalItemConfig, read_prompt
-from .errors import ConfigError, ErrorRecord, EvalFeiaError, GitError, HealthError
+from .errors import ErrorRecord, EvalFeiaError, HealthError
 from .git_worktree import (
     GitWorktreeManager,
     LocalGitArtifacts,
@@ -38,16 +38,9 @@ from .manifest import (
 from .opencode_client import OpencodeClient, normalize_command
 from .paths import output_dir_for_run, worktree_dir_for_run
 from .plain_table import print_plain_table
+from .progress import TrialProgressLogger, TrialProgressMetadata
 from .records import CandidateResult, CandidateSummary, RunSummary, ValidationCommandResult, ValidationResult
-from .storage import (
-    add_run_event,
-    create_run,
-    db_path_for_output_root,
-    default_db_path,
-    format_storage_error,
-    update_run,
-)
-from .summary import parse_numstat, print_summary, write_run_summary
+from .summary import extract_opencode_metrics, parse_numstat, print_summary, write_run_summary
 
 
 @dataclass(slots=True)
@@ -82,39 +75,13 @@ def run_evaluation(
 ) -> RunOutcome:
     active_console = console if console is not None else Console()
     actual_run_id = run_id or generate_run_id()
-    started_monotonic = time.monotonic()
-    started_at = utc_now_iso()
     output_dir = output_dir_for_run(actual_run_id, config.run.output_root).resolve(strict=False)
-    db_path = default_db_path(config.run.output_root)
-    db_enabled = _safe_create_run_record(
-        active_console,
-        db_path,
-        run_id=actual_run_id,
-        config=config,
-        output_dir=output_dir,
-        started_at=started_at,
-    )
-    _safe_add_run_event(
-        active_console,
-        db_path,
-        db_enabled,
-        run_id=actual_run_id,
-        level="info",
-        message="run started",
-    )
     owns_client = client is None
     try:
         specs = _build_candidate_specs(config, actual_run_id)
         manager = GitWorktreeManager(config.repo.path)
         repo_root = manager.ensure_repo()
         base_sha = manager.resolve_sha(config.repo.base_ref)
-        _safe_update_run_record(
-            active_console,
-            db_path,
-            db_enabled,
-            actual_run_id,
-            repo_root=repo_root,
-        )
         if client is None:
             client = OpencodeClient(
                 config.server.url,
@@ -123,27 +90,11 @@ def run_evaluation(
                 timeout=30.0,
             )
 
-        _safe_add_run_event(
-            active_console,
-            db_path,
-            db_enabled,
-            run_id=actual_run_id,
-            level="info",
-            message="checking opencode server",
-        )
-        _print_progress(active_console, "checking opencode server")
+        _print_progress(active_console, config, "checking opencode server")
         health = _health_with_retry(client, config)
         version = str(health.get("version") or "unknown")
 
-        _safe_add_run_event(
-            active_console,
-            db_path,
-            db_enabled,
-            run_id=actual_run_id,
-            level="info",
-            message="preparing output directories",
-        )
-        _print_progress(active_console, "preparing output directories")
+        _print_progress(active_console, config, "preparing output directories")
         worktree_root = worktree_dir_for_run(actual_run_id, config.repo.worktree_root).resolve(strict=False)
         output_dir.mkdir(parents=True, exist_ok=False)
         write_generated_marker(output_dir)
@@ -170,30 +121,13 @@ def run_evaluation(
             server=ServerRecord(url=config.server.url, version=version),
             output_dir=output_dir,
             worktree_root=worktree_root,
-            db_path=db_path if db_path == db_path_for_output_root(config.run.output_root) else None,
             candidates=[],
         )
         write_manifest(manifest)
 
-        _safe_add_run_event(
-            active_console,
-            db_path,
-            db_enabled,
-            run_id=actual_run_id,
-            level="info",
-            message="creating worktrees",
-        )
-        _print_progress(active_console, "creating worktrees")
+        _print_progress(active_console, config, "creating worktrees")
         records = _create_worktrees(config, specs, manager, manifest, active_console)
-        _safe_add_run_event(
-            active_console,
-            db_path,
-            db_enabled,
-            run_id=actual_run_id,
-            level="info",
-            message="running candidates",
-        )
-        _print_progress(active_console, "running candidates")
+        _print_progress(active_console, config, "running candidates")
         candidate_results = _execute_candidates(
             config,
             specs,
@@ -203,69 +137,10 @@ def run_evaluation(
             records,
             active_console,
         )
-        _safe_add_run_event(
-            active_console,
-            db_path,
-            db_enabled,
-            run_id=actual_run_id,
-            level="info",
-            message="writing final summary",
-        )
-        _print_progress(active_console, "writing final summary")
+        _print_progress(active_console, config, "writing final summary")
         summary = write_run_summary(manifest, candidate_results, health=health)
         print_summary(active_console, summary)
-        passed = bool(summary["passed"])
-        ended_at = utc_now_iso()
-        duration_ms = int((time.monotonic() - started_monotonic) * 1000)
-        _safe_update_run_record(
-            active_console,
-            db_path,
-            db_enabled,
-            actual_run_id,
-            status="success" if passed else "failed",
-            ended_at=ended_at,
-            duration_ms=duration_ms,
-            exit_code=0 if passed else 1,
-            summary_path=output_dir / "run-summary.json",
-        )
-        _safe_add_run_event(
-            active_console,
-            db_path,
-            db_enabled,
-            run_id=actual_run_id,
-            level="info",
-            message="run completed",
-            metadata={"passed": passed},
-        )
         return RunOutcome(actual_run_id, output_dir, summary, bool(summary["passed"]))
-    except BaseException as exc:
-        status = "cancelled" if isinstance(exc, KeyboardInterrupt) else "failed"
-        ended_at = utc_now_iso()
-        duration_ms = int((time.monotonic() - started_monotonic) * 1000)
-        _safe_update_run_record(
-            active_console,
-            db_path,
-            db_enabled,
-            actual_run_id,
-            status=status,
-            ended_at=ended_at,
-            duration_ms=duration_ms,
-            exit_code=_exit_code_for_exception(exc),
-            error_message="interrupted" if isinstance(exc, KeyboardInterrupt) else str(exc),
-            summary_path=(output_dir / "run-summary.json")
-            if (output_dir / "run-summary.json").exists()
-            else None,
-        )
-        _safe_add_run_event(
-            active_console,
-            db_path,
-            db_enabled,
-            run_id=actual_run_id,
-            level="error",
-            message="run failed" if status == "failed" else "run cancelled",
-            metadata={"error": str(exc), "type": type(exc).__name__},
-        )
-        raise
     finally:
         if owns_client and client is not None:
             client.close()
@@ -433,95 +308,10 @@ def _print_created_worktrees(
     print_plain_table(console, ("#", "WORKTREE"), rows)
 
 
-def _print_progress(console: Console, message: str) -> None:
+def _print_progress(console: Console, config: EvalConfig, message: str) -> None:
+    if not config.run.progress:
+        return
     console.print(f"progress: {message}", markup=False)
-
-
-def _safe_create_run_record(
-    console: Console,
-    db_path: Path,
-    *,
-    run_id: str,
-    config: EvalConfig,
-    output_dir: Path,
-    started_at: str,
-) -> bool:
-    try:
-        create_run(
-            db_path,
-            run_id=run_id,
-            status="running",
-            started_at=started_at,
-            cwd=Path.cwd().resolve(strict=False),
-            branch=config.repo.base_ref,
-            label=_non_empty(config.run.label),
-            command=normalize_command(config.run.command),
-            prompt=None,
-            output_dir=output_dir,
-            metadata={
-                "has_inline_prompt": config.run.prompt is not None,
-                "prompt_file": str(config.run.prompt_file) if config.run.prompt_file else None,
-                "candidate_count": config.run.candidates,
-                "server_url": config.server.url,
-            },
-        )
-        return True
-    except Exception as exc:
-        _print_storage_warning(console, db_path, exc)
-        return False
-
-
-def _safe_update_run_record(
-    console: Console,
-    db_path: Path,
-    db_enabled: bool,
-    run_id: str,
-    **fields: Any,
-) -> None:
-    if not db_enabled:
-        return
-    try:
-        update_run(db_path, run_id, **fields)
-    except Exception as exc:
-        _print_storage_warning(console, db_path, exc)
-
-
-def _safe_add_run_event(
-    console: Console,
-    db_path: Path,
-    db_enabled: bool,
-    *,
-    run_id: str,
-    message: str,
-    level: str | None = None,
-    metadata: dict[str, Any] | None = None,
-) -> None:
-    if not db_enabled:
-        return
-    try:
-        add_run_event(db_path, run_id=run_id, message=message, level=level, metadata=metadata)
-    except Exception as exc:
-        _print_storage_warning(console, db_path, exc)
-
-
-def _print_storage_warning(console: Console, db_path: Path, exc: BaseException) -> None:
-    console.print(
-        f"warning: {format_storage_error(exc, db_path)}",
-        style="yellow",
-        markup=False,
-    )
-
-
-def _exit_code_for_exception(exc: BaseException) -> int:
-    if isinstance(exc, KeyboardInterrupt):
-        return 130
-    if isinstance(exc, ConfigError):
-        return 2
-    if isinstance(exc, HealthError):
-        return 3
-    if isinstance(exc, GitError):
-        return 4
-    return 1
 
 
 def _execute_candidates(
@@ -534,18 +324,21 @@ def _execute_candidates(
     console: Console,
 ) -> list[CandidateResult]:
     lock = threading.Lock()
+    output_lock = threading.Lock()
     specs_by_id = {spec.id: spec for spec in specs}
 
     def run_one(record: CandidateManifestRecord) -> CandidateResult:
+        spec = specs_by_id[record.id]
         return _execute_candidate(
             config,
-            specs_by_id[record.id].prompt,
+            spec,
             client,
             manager,
             manifest,
             record,
             console,
             lock,
+            output_lock,
         )
 
     if config.run.concurrency <= 1 or len(records) <= 1:
@@ -562,13 +355,14 @@ def _execute_candidates(
 
 def _execute_candidate(
     config: EvalConfig,
-    prompt: str,
+    spec: CandidateSpec,
     client: OpencodeClient,
     manager: GitWorktreeManager,
     manifest: Manifest,
     record: CandidateManifestRecord,
     console: Console,
     lock: threading.Lock,
+    output_lock: threading.Lock,
 ) -> CandidateResult:
     started = time.monotonic()
     started_at = utc_now_iso()
@@ -576,11 +370,34 @@ def _execute_candidate(
     session_id: str | None = None
     collection_errors: list[ErrorRecord] = []
     validation: ValidationResult = {"commands": [], "passed": True}
-    stats = {"files_changed": 0, "additions": 0, "deletions": 0}
+    stats: dict[str, Any] = {
+        "files_changed": 0,
+        "additions": 0,
+        "deletions": 0,
+        "token_input": None,
+        "token_output": None,
+        "token_reasoning": None,
+        "tool_call_count": None,
+        "cost_total": None,
+    }
     result_dir = record.result_dir
     worktree = record.worktree_path
     result_dir.mkdir(parents=True, exist_ok=True)
     (result_dir / "worktree.txt").write_text(f"{worktree}\n", encoding="utf-8")
+    progress = TrialProgressLogger(
+        console,
+        TrialProgressMetadata(
+            index=spec.index,
+            total=spec.total,
+            trial_id=record.id,
+            label=record.eval_id or manifest.label,
+            branch=record.branch_name,
+            worktree=worktree,
+        ),
+        output_lock=output_lock,
+        enabled=config.run.progress,
+    )
+    progress.started()
 
     try:
         client.path(worktree)
@@ -589,22 +406,34 @@ def _execute_candidate(
         session_id = _session_id(session)
         _validate_session_directory(session, worktree)
         _update_manifest(manifest, record, session_id=session_id, status="running", lock=lock)
-        console.print(f"{_record_prefix(record)} session: {session_id}", markup=False)
-        client.session_prompt(
-            worktree,
-            session_id,
-            prompt,
-            command=config.run.command,
-            agent=config.run.agent,
-            model=_model_dict(config.run.model),
-            timeout=config.run.timeout_seconds,
-        )
+        progress.session_created(session_id)
+        progress.start_event_stream(client, worktree)
+        try:
+            client.session_prompt(
+                worktree,
+                session_id,
+                spec.prompt,
+                command=config.run.command,
+                agent=config.run.agent,
+                model=_model_dict(config.run.model),
+                timeout=config.run.timeout_seconds,
+            )
+        finally:
+            progress.stop_event_stream()
+        if progress.error is not None:
+            raise EvalFeiaError(
+                progress.error.kind,
+                progress.error.message,
+                details=progress.error.details,
+            )
         collection = collect_candidate(client, worktree, session_id, result_dir)
         collection_errors = collection.errors
+        stats.update(extract_opencode_metrics(collection.session, collection.messages, collection.children))
+        _merge_progress_stats(stats, progress.stats)
         local = manager.collect_local_artifacts(worktree)
         _write_local_artifacts(result_dir, local)
         validation = _run_validation(config, worktree, result_dir)
-        stats = parse_numstat(local.diff_numstat)
+        stats.update(parse_numstat(local.diff_numstat))
         stats["files_changed"] = max(stats["files_changed"], _count_status_files(local.status_short))
         if collection_errors:
             error = collection_errors[0]
@@ -667,10 +496,11 @@ def _execute_candidate(
         write_json(result_dir / "error.json", error.to_dict())
     write_json(result_dir / "result.json", candidate_result)
     _update_manifest(manifest, record, session_id=session_id, status=status, lock=lock)
-    console.print(
-        f"{_record_prefix(record)} status: {status}; validation: {validation_status}",
-        markup=False,
-    )
+    elapsed_seconds = time.monotonic() - started
+    if error is None:
+        progress.completed(status, validation_status, elapsed_seconds)
+    else:
+        progress.failed(error, elapsed_seconds)
     return candidate_result
 
 
@@ -696,7 +526,7 @@ def _build_candidate_result(
     duration_seconds: float,
     status: str,
     validation_status: str,
-    stats: dict[str, int],
+    stats: dict[str, Any],
     collection_errors: list[ErrorRecord],
     error: ErrorRecord | None,
 ) -> CandidateResult:
@@ -704,6 +534,11 @@ def _build_candidate_result(
         "files_changed": stats["files_changed"],
         "additions": stats["additions"],
         "deletions": stats["deletions"],
+        "token_input": stats.get("token_input"),
+        "token_output": stats.get("token_output"),
+        "token_reasoning": stats.get("token_reasoning"),
+        "tool_call_count": stats.get("tool_call_count"),
+        "cost_total": stats.get("cost_total"),
         "final_output_file": "final-output.md",
     }
     result: CandidateResult = {
@@ -784,6 +619,21 @@ def _count_status_files(status_short: str) -> int:
         if line.strip():
             count += 1
     return count
+
+
+def _merge_progress_stats(stats: dict[str, Any], progress_stats: Any) -> None:
+    if stats.get("tool_call_count") is None and getattr(progress_stats, "tool_call_count", 0):
+        stats["tool_call_count"] = progress_stats.tool_call_count
+    for source_key, target_key in (
+        ("token_input", "token_input"),
+        ("token_output", "token_output"),
+        ("token_reasoning", "token_reasoning"),
+        ("cost_total", "cost_total"),
+    ):
+        if stats.get(target_key) is None:
+            value = getattr(progress_stats, source_key, None)
+            if value is not None:
+                stats[target_key] = value
 
 
 def _collect_local_best_effort(manager: GitWorktreeManager, worktree: Path, result_dir: Path) -> None:

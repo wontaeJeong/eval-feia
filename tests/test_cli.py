@@ -16,7 +16,6 @@ from eval_feia.manifest import (
     write_manifest,
 )
 from eval_feia.results_store import complete_run_record, run_directory, start_run_record
-from eval_feia.storage import create_run
 
 
 def test_top_level_help_uses_compact_command_names() -> None:
@@ -42,7 +41,8 @@ def test_run_help_lists_command_option() -> None:
     assert "--repo" in result.output
     assert "--base-dir" in result.output
     assert "EVAL_FEIA_BASE_DIR" in result.output
-    assert "EVAL_FEIA_DB_PATH" in result.output
+    assert "--progress" in result.output
+    assert "--quiet" in result.output
     assert "--config" not in result.output
     assert "--base-ref" not in result.output
     assert "--worktrees" not in result.output
@@ -149,6 +149,40 @@ def test_run_base_dir_controls_config_and_stored_results(monkeypatch, tmp_path: 
     assert (base_dir / run_id / "results" / "metadata.json").exists()
 
 
+def test_run_quiet_disables_progress_logging(monkeypatch, tmp_path: Path) -> None:
+    captured = {}
+    run_id = "20260517-143012-a1b2c3"
+    monkeypatch.setenv("EVAL_FEIA_RESULTS_DIR", str(tmp_path / "stored-results"))
+    monkeypatch.setattr("eval_feia.cli.generate_run_id", lambda: run_id)
+
+    def fake_run_evaluation(config, *, console, run_id):
+        captured["progress"] = config.run.progress
+
+        class Outcome:
+            passed = True
+            output_dir = tmp_path / "artifacts" / run_id
+            summary = {
+                "run_id": run_id,
+                "label": None,
+                "server": {"url": "http://opencode.test"},
+                "opencode_version": "fake",
+                "repo": {"path": str(tmp_path), "base_ref": "HEAD", "base_sha": "abc123"},
+                "output_dir": str(output_dir),
+                "passed": True,
+                "health": {},
+                "candidates": [],
+            }
+
+        return Outcome()
+
+    monkeypatch.setattr("eval_feia.cli.run_evaluation", fake_run_evaluation)
+
+    result = CliRunner().invoke(app, ["run", "hello inline", "--quiet"], color=False)
+
+    assert result.exit_code == 0
+    assert captured["progress"] is False
+
+
 def test_run_rejects_removed_config_and_alias_options() -> None:
     for option in ("--config", "--base-ref", "--worktrees", "--prompt", "--branch-name"):
         result = CliRunner().invoke(app, ["run", "hello inline", option, "value"], color=False)
@@ -176,7 +210,6 @@ def test_clean_manifest_is_positional_argument() -> None:
 
     assert result.exit_code == 0
     assert "MANIFEST" in result.output
-    assert "--delete-index" in result.output
     assert "--results" in result.output
     assert "--base-dir" in result.output
     assert "--db" not in result.output
@@ -195,25 +228,6 @@ def test_list_help_includes_index_filters() -> None:
     assert "--json" in result.output
 
 
-def test_list_json_reads_sqlite_index_when_configured(monkeypatch, tmp_path: Path) -> None:
-    db_path = tmp_path / "eval-feia.sqlite3"
-    monkeypatch.setenv("EVAL_FEIA_DB_PATH", str(db_path))
-    create_run(
-        db_path,
-        run_id="json-run",
-        status="success",
-        branch="main",
-        output_dir=tmp_path / "runs" / "json-run",
-    )
-
-    result = CliRunner().invoke(app, ["list", "--json"], color=False)
-
-    assert result.exit_code == 0
-    rows = json.loads(result.output)
-    assert rows[0]["id"] == "json-run"
-    assert rows[0]["status"] == "success"
-
-
 def test_results_commands_list_show_path_and_print(monkeypatch, tmp_path: Path) -> None:
     run_id = "20260517-143012-a1b2c3"
     root = tmp_path / "results"
@@ -229,12 +243,15 @@ def test_results_commands_list_show_path_and_print(monkeypatch, tmp_path: Path) 
         stderr_text="",
     )
 
-    listed = CliRunner().invoke(app, ["results", "list"], color=False)
+    listed = CliRunner().invoke(app, ["list"], color=False)
     assert listed.exit_code == 0
-    assert "RUN_ID" in listed.output
+    assert "RUN" in listed.output
     assert "STATUS" in listed.output
     assert run_id in listed.output
     assert "success" in listed.output
+
+    removed_list = CliRunner().invoke(app, ["results", "list"], color=False)
+    assert removed_list.exit_code == 2
 
     shown = CliRunner().invoke(app, ["results", "show", run_id], color=False)
     assert shown.exit_code == 0
@@ -285,15 +302,12 @@ def test_clean_rejects_ambiguous_results_options(tmp_path: Path) -> None:
 
     with_manifest = CliRunner().invoke(app, ["clean", str(manifest), "--results"], color=False)
     with_force = CliRunner().invoke(app, ["clean", "--results", "--force"], color=False)
-    with_delete_index = CliRunner().invoke(app, ["clean", "--results", "--delete-index"], color=False)
     without_manifest = CliRunner().invoke(app, ["clean"], color=False)
 
     assert with_manifest.exit_code == 2
     assert "MANIFEST cannot be used with --results" in with_manifest.output
     assert with_force.exit_code == 2
-    assert "--force and --delete-index apply only to manifest cleanup" in with_force.output
-    assert with_delete_index.exit_code == 2
-    assert "--force and --delete-index apply only to manifest cleanup" in with_delete_index.output
+    assert "--force applies only to manifest cleanup" in with_force.output
     assert without_manifest.exit_code == 2
     assert "MANIFEST is required unless --results is set" in without_manifest.output
 
@@ -463,7 +477,35 @@ def test_list_base_dir_reads_base_runs_root(monkeypatch, tmp_path: Path) -> None
     assert str(run_dir) in result.output
 
 
-def test_list_index_filters_use_base_runs_root_when_index_is_empty(
+def test_list_base_dir_reads_stored_results_without_generated_output(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    base_dir = tmp_path / "state"
+    run_id = "stored-only-run"
+    results_root = base_dir / run_id / "results"
+    start_run_record(run_id, cwd=tmp_path, branch="HEAD", label="stored only", command=None, root=results_root)
+    complete_run_record(
+        run_id,
+        status="success",
+        exit_code=0,
+        output_text="ok\n",
+        summary_text="ok\n",
+        stdout_text="",
+        stderr_text="",
+        root=results_root,
+    )
+
+    result = CliRunner().invoke(app, ["list", "--base-dir", str(base_dir)], color=False)
+
+    assert result.exit_code == 0
+    assert run_id in result.output
+    assert "stored only" in result.output
+    assert str(results_root) in result.output
+
+
+def test_list_filters_read_base_runs_root_when_empty(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -477,7 +519,7 @@ def test_list_index_filters_use_base_runs_root_when_index_is_empty(
     )
 
     assert result.exit_code == 0
-    assert "STATUS" in result.output
+    assert "No saved runs found." in result.output
 
 
 def test_list_json_outputs_saved_runs(monkeypatch, tmp_path: Path) -> None:

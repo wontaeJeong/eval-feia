@@ -29,6 +29,11 @@ class CandidateSummary(TypedDict):
     files_changed: int
     additions: int
     deletions: int
+    token_input: int | None
+    token_output: int | None
+    token_reasoning: int | None
+    tool_call_count: int | None
+    cost_total: float | None
     final_output_file: str
 
 
@@ -78,27 +83,3 @@ class RunSummary(TypedDict):
     passed: bool
     health: JsonObject
     candidates: list[CandidateResult]
-
-
-class RunRow(TypedDict, total=False):
-    id: JsonValue
-    created_at: JsonValue
-    updated_at: JsonValue
-    started_at: JsonValue
-    ended_at: JsonValue
-    status: JsonValue
-    cwd: JsonValue
-    repo_root: JsonValue
-    branch: JsonValue
-    label: JsonValue
-    command: JsonValue
-    prompt: JsonValue
-    output_dir: JsonValue
-    stdout_path: JsonValue
-    stderr_path: JsonValue
-    result_path: JsonValue
-    summary_path: JsonValue
-    exit_code: JsonValue
-    duration_ms: JsonValue
-    error_message: JsonValue
-    metadata_json: JsonValue

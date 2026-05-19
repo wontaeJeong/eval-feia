@@ -176,6 +176,35 @@ def test_rest_request_shapes_for_session_prompt_collect_and_abort(tmp_path: Path
     assert seen[8][3][DIRECTORY_HEADER] == encoded
 
 
+def test_event_stream_uses_directory_query_and_sse_accept_header(tmp_path: Path) -> None:
+    cwd = tmp_path / "candidate"
+    encoded = encode_directory(cwd)
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            content=b'data: {"type":"server.connected","properties":{}}\n\n',
+        )
+
+    client = OpencodeClient("http://opencode.test", transport=httpx.MockTransport(handler))
+
+    with client.event_stream(cwd) as response:
+        assert list(response.iter_lines()) == [
+            'data: {"type":"server.connected","properties":{}}',
+            "",
+        ]
+
+    request = seen[0]
+    assert request.method == "GET"
+    assert request.url.path == "/event"
+    assert request.url.query.decode() == f"directory={encoded}"
+    assert DIRECTORY_HEADER not in request.headers
+    assert request.headers["accept"] == "text/event-stream"
+
+
 def test_session_prompt_posts_command_request_shape(tmp_path: Path) -> None:
     cwd = tmp_path / "candidate"
     encoded = encode_directory(cwd)

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 from urllib.parse import quote
 
 import httpx
@@ -139,6 +140,19 @@ class OpencodeClient:
     def file_status(self, cwd: str | Path) -> Any:
         return self._request("GET", "/file/status", cwd=cwd)
 
+    @contextmanager
+    def event_stream(
+        self,
+        cwd: str | Path,
+        *,
+        timeout: float | httpx.Timeout | None = None,
+    ) -> Iterator[httpx.Response]:
+        url, headers = self._request_context("GET", "/event", cwd=cwd)
+        headers["accept"] = "text/event-stream"
+        with self._client.stream("GET", url, headers=headers, timeout=timeout) as response:
+            response.raise_for_status()
+            yield response
+
     def _request(
         self,
         method: str,
@@ -148,6 +162,23 @@ class OpencodeClient:
         json: Any | None = None,
         timeout: float | None = None,
     ) -> Any:
+        url, headers = self._request_context(method, path, cwd=cwd)
+        response = self._client.request(method, url, headers=headers, json=json, timeout=timeout)
+        response.raise_for_status()
+        if not response.content:
+            return {}
+        try:
+            return response.json()
+        except ValueError:
+            return {"text": response.text}
+
+    def _request_context(
+        self,
+        method: str,
+        path: str,
+        *,
+        cwd: str | Path | None = None,
+    ) -> tuple[str, dict[str, str]]:
         headers: dict[str, str] = {}
         url = path
         if cwd is not None:
@@ -157,12 +188,4 @@ class OpencodeClient:
                 url = f"{url}{separator}directory={encoded}"
             else:
                 headers[DIRECTORY_HEADER] = encoded
-
-        response = self._client.request(method, url, headers=headers, json=json, timeout=timeout)
-        response.raise_for_status()
-        if not response.content:
-            return {}
-        try:
-            return response.json()
-        except ValueError:
-            return {"text": response.text}
+        return url, headers

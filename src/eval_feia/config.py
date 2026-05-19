@@ -77,6 +77,7 @@ class RunConfig(BaseModel):
     agent: str | None = None
     model: ModelConfig | dict[str, Any] | None = None
     command: str | None = None
+    progress: bool = True
     delete_sessions_after_collect: bool = False
 
     @model_validator(mode="after")
@@ -179,6 +180,7 @@ def build_config(
     prompt_file: Path | None = None,
     label: str | None = None,
     command: str | None = None,
+    progress: bool | None = None,
     output_dir: Path | None = None,
     base_root: Path | None = None,
     base_dir: Path | None = None,
@@ -194,6 +196,7 @@ def build_config(
     _set_nested(raw, "run", "prompt_file", prompt_file)
     _set_nested(raw, "run", "label", label)
     _set_nested(raw, "run", "command", command)
+    _set_nested(raw, "run", "progress", progress)
     if base_root is not None:
         effective_base_root = _resolve_path(base_root, base_dir or Path.cwd())
         _set_nested(raw, "repo", "worktree_root", worktree_root_for_base(effective_base_root))

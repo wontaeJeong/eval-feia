@@ -138,7 +138,7 @@ def load_metadata(run_id: str, root: Path | None = None) -> dict[str, Any]:
 
 def list_run_metadata(root: Path | None = None) -> list[dict[str, Any]]:
     resolved_root = resolve_results_root(root)
-    if _uses_base_results_layout(root):
+    if _uses_base_results_layout(root) or _looks_like_base_root(resolved_root):
         records = _scan_base_metadata(resolved_root)
     elif resolved_root.name == RESULTS_DIR_NAME and (resolved_root / "metadata.json").exists():
         records = _scan_direct_results_metadata(resolved_root)
@@ -199,6 +199,12 @@ def _validate_run_id(run_id: str) -> None:
 
 def _uses_base_results_layout(root: Path | None) -> bool:
     return root is None and not os.environ.get(RESULTS_DIR_ENV)
+
+
+def _looks_like_base_root(root: Path) -> bool:
+    if root.name == RESULTS_DIR_NAME or (root / RESULTS_MARKER).exists():
+        return False
+    return root.exists()
 
 
 def _uses_run_results_dir(run_id: str, root: Path | None, resolved_root: Path) -> bool:
@@ -337,6 +343,8 @@ def _metadata_path_for_listed_run(run_id: str, root: Path | None, resolved_root:
         return results_dir_for_run(run_id, resolved_root) / "metadata.json"
     if resolved_root.name == RESULTS_DIR_NAME and resolved_root.parent.name == run_id:
         return resolved_root / "metadata.json"
+    if _looks_like_base_root(resolved_root):
+        return results_dir_for_run(run_id, resolved_root) / "metadata.json"
     return run_directory(run_id, resolved_root) / "metadata.json"
 
 

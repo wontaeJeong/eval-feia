@@ -97,6 +97,29 @@ def test_list_falls_back_to_metadata_when_index_is_damaged(monkeypatch, tmp_path
     assert records[0]["status"] == "failed"
 
 
+def test_list_run_metadata_reads_explicit_base_layout(tmp_path: Path) -> None:
+    base = tmp_path / "state"
+    run_id = "20260517-143012-a1b2c3"
+    results_root = base / run_id / "results"
+    start_run_record(run_id, cwd=tmp_path, branch="HEAD", label="base stored", command=None, root=results_root)
+    complete_run_record(
+        run_id,
+        status="success",
+        exit_code=0,
+        output_text="ok\n",
+        summary_text="ok\n",
+        stdout_text="",
+        stderr_text="",
+        root=results_root,
+    )
+
+    records = list_run_metadata(base)
+
+    assert [record["run_id"] for record in records] == [run_id]
+    assert records[0]["status"] == "success"
+    assert records[0]["output_dir"] == str(results_root)
+
+
 def test_result_file_path_rejects_traversal(monkeypatch, tmp_path: Path) -> None:
     root = tmp_path / "results"
     run_id = "20260517-143012-a1b2c3"

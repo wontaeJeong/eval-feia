@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import json
-import os
 from pathlib import Path
-from typing import Annotated, Any, Mapping, cast
+from typing import Annotated, Any, cast
 
 import typer
 from rich.console import Console
@@ -13,10 +11,8 @@ from .config import EvalConfig, build_config
 from .errors import CleanupSafetyError, ConfigError, EvalFeiaError, GitError, HealthError
 from .listing import list_saved_runs, print_saved_runs, saved_runs_json
 from .paths import BASE_DIR_ENV, output_root_for_base, results_dir_for_run
-from .plain_table import print_plain_table
 from .results_store import (
     complete_run_record,
-    list_run_metadata,
     load_metadata,
     read_result_file,
     run_directory,
@@ -24,21 +20,13 @@ from .results_store import (
 )
 from .records import RunSummary
 from .runner import RunOutcome, generate_run_id, run_evaluation
-from .storage import (
-    DB_ENV_VAR,
-    VALID_STATUSES,
-    backfill_from_output_dir,
-    count_runs,
-    default_db_path,
-    format_storage_error,
-    list_runs as list_indexed_runs,
-)
 from .summary import render_markdown_summary
 
 
 app = typer.Typer(add_completion=False, help="REST-only opencode worktree evaluator.")
 results_app = typer.Typer(add_completion=False, help="Inspect stored run results.")
 console = Console()
+VALID_LIST_STATUSES = {"pending", "running", "success", "failed", "cancelled", "unknown"}
 
 
 @app.command("run")
@@ -90,13 +78,24 @@ def run_eval(
             help="Run an opencode slash command; the prompt is sent as command arguments.",
         ),
     ] = None,
+    progress: Annotated[
+        bool,
+        typer.Option(
+            "--progress/--no-progress",
+            help="Show live progress logs, including opencode event stream updates.",
+        ),
+    ] = True,
+    quiet: Annotated[
+        bool,
+        typer.Option("--quiet", help="Hide progress logs while keeping final output."),
+    ] = False,
     base_dir: Annotated[
         Path | None,
         typer.Option(
             "--base-dir",
             help=(
-                "Eval-feia base directory. Runs, worktrees, results, and the default "
-                f"SQLite index are derived from it. Overrides {BASE_DIR_ENV}."
+                "Eval-feia base directory. Runs, worktrees, and results are derived "
+                f"from it. Overrides {BASE_DIR_ENV}."
             ),
         ),
     ] = None,
@@ -104,10 +103,7 @@ def run_eval(
         Path | None,
         typer.Option(
             "--output-dir",
-            help=(
-                "Generated run output root. The SQLite index defaults to the eval-feia "
-                f"base database unless {DB_ENV_VAR} is set."
-            ),
+            help="Generated run output root for run artifacts.",
         ),
     ] = None,
 ) -> None:
@@ -139,6 +135,7 @@ def run_eval(
             prompt_file=prompt_file,
             label=label,
             command=command,
+            progress=progress and not quiet,
             base_dir=base_dir,
             output_dir=output_dir,
         )
@@ -191,6 +188,7 @@ def _build_run_config(
     prompt_file: Path | None,
     label: str | None,
     command: str | None,
+    progress: bool | None,
     base_dir: Path | None,
     output_dir: Path | None,
 ) -> EvalConfig:
@@ -204,6 +202,7 @@ def _build_run_config(
         prompt_file=prompt_file,
         label=label,
         command=command,
+        progress=progress,
         base_root=base_dir,
         output_dir=output_dir,
     )
@@ -230,46 +229,45 @@ def _results_root_for_base_dir(run_id: str, base_dir: Path | None) -> Path | Non
 def _list_run_artifacts_command(
     limit: Annotated[
         int | None,
-        typer.Option("--limit", help="Show only the most recent N generated run artifacts."),
+        typer.Option("--limit", help="Show only the most recent N saved runs."),
     ] = None,
     base_dir: Annotated[
         Path | None,
-        typer.Option("--base-dir", help="Eval-feia base directory whose runs/ root is inspected."),
+        typer.Option("--base-dir", help="Eval-feia base directory to inspect."),
     ] = None,
     output_dir: Annotated[
         Path | None,
         typer.Option("--output-dir", help="Generated run artifact root to inspect."),
     ] = None,
-    status: Annotated[str | None, typer.Option("--status", help="Filter by indexed run status.")] = None,
-    branch: Annotated[str | None, typer.Option("--branch", help="Filter by indexed branch/base ref.")] = None,
-    label: Annotated[str | None, typer.Option("--label", help="Filter by indexed run label.")] = None,
+    status: Annotated[str | None, typer.Option("--status", help="Filter by run status.")] = None,
+    branch: Annotated[str | None, typer.Option("--branch", help="Filter by branch/base ref.")] = None,
+    label: Annotated[str | None, typer.Option("--label", help="Filter by run label.")] = None,
     json_output: Annotated[
         bool,
-        typer.Option("--json", help="Print generated run artifacts as a JSON array."),
+        typer.Option("--json", help="Print saved runs as a JSON array."),
     ] = False,
 ) -> None:
-    """List generated run artifacts."""
+    """List generated run artifacts and stored result metadata."""
     if limit is not None and limit < 1:
         console.print("--limit must be greater than zero", style="red")
+        raise typer.Exit(2)
+    if status is not None and status not in VALID_LIST_STATUSES:
+        console.print(
+            "invalid --status; expected one of " + ", ".join(sorted(VALID_LIST_STATUSES)),
+            style="red",
+        )
         raise typer.Exit(2)
     if base_dir is not None and output_dir is not None:
         console.print("--base-dir and --output-dir cannot be used together", style="red")
         raise typer.Exit(2)
-    if _should_use_sqlite_index(status=status, branch=branch, label=label):
-        _list_indexed_run_artifacts(
-            limit=limit or 20,
-            base_dir=base_dir,
-            output_dir=output_dir,
-            status=status,
-            branch=branch,
-            label=label,
-            json_output=json_output,
-        )
-        raise typer.Exit(0)
-
     runs = list_saved_runs(
         output_root=_output_root_for_list(base_dir=base_dir, output_dir=output_dir),
         limit=limit,
+        status=status,
+        branch=branch,
+        label=label,
+        include_results=output_dir is None,
+        include_configured_results=base_dir is None and output_dir is None,
     )
     if json_output:
         typer.echo(saved_runs_json(runs))
@@ -278,86 +276,12 @@ def _list_run_artifacts_command(
     raise typer.Exit(0)
 
 
-def _should_use_sqlite_index(*, status: str | None, branch: str | None, label: str | None) -> bool:
-    return bool(os.environ.get(DB_ENV_VAR) or status is not None or branch is not None or label is not None)
-
-
-def _list_indexed_run_artifacts(
-    *,
-    limit: int,
-    base_dir: Path | None,
-    output_dir: Path | None,
-    status: str | None,
-    branch: str | None,
-    label: str | None,
-    json_output: bool,
-) -> None:
-    if status is not None and status not in VALID_STATUSES:
-        console.print(
-            "invalid --status; expected one of " + ", ".join(sorted(VALID_STATUSES)),
-            style="red",
-        )
-        raise typer.Exit(2)
-    output_root = _output_root_for_list(base_dir=base_dir, output_dir=output_dir)
-    db_path = default_db_path(output_root)
-    try:
-        if count_runs(db_path) == 0:
-            backfill_from_output_dir(db_path, output_root)
-        rows = list_indexed_runs(db_path, limit=limit, status=status, branch=branch, label=label)
-    except Exception as exc:
-        console.print(format_storage_error(exc, db_path), style="red")
-        raise typer.Exit(6) from exc
-
-    if json_output:
-        console.print(json.dumps(rows, ensure_ascii=False, sort_keys=True), markup=False, soft_wrap=True)
-        return
-    print_plain_table(
-        console,
-        ("ID", "STATUS", "BRANCH/LABEL", "CWD", "STARTED", "ENDED", "DURATION", "OUTPUT"),
-        [_indexed_run_row(row) for row in rows],
-    )
-
-
 def _output_root_for_list(*, base_dir: Path | None, output_dir: Path | None) -> Path:
     if output_dir is not None:
         return output_dir.expanduser().resolve(strict=False)
     if base_dir is not None:
         return output_root_for_base(base_dir).expanduser().resolve(strict=False)
     return output_root_for_base().expanduser().resolve(strict=False)
-
-
-def _indexed_run_row(row: Mapping[str, object]) -> tuple[str, ...]:
-    branch_or_label = str(row.get("label") or row.get("branch") or "")
-    return (
-        str(row.get("id") or "")[:12],
-        str(row.get("status") or ""),
-        branch_or_label,
-        _display_cwd(row),
-        str(row.get("started_at") or ""),
-        str(row.get("ended_at") or ""),
-        _format_duration(row.get("duration_ms")),
-        str(row.get("output_dir") or ""),
-    )
-
-
-def _display_cwd(row: Mapping[str, object]) -> str:
-    value = row.get("cwd") or row.get("repo_root")
-    if not value:
-        return ""
-    path = Path(str(value))
-    return path.name or str(path)
-
-
-def _format_duration(value: object) -> str:
-    if value is None:
-        return ""
-    try:
-        duration_ms = int(value) if isinstance(value, int | str) else int(str(value))
-    except (TypeError, ValueError):
-        return ""
-    if duration_ms < 1000:
-        return f"{duration_ms}ms"
-    return f"{duration_ms / 1000:.1f}s"
 
 
 app.command("list")(_list_run_artifacts_command)
@@ -475,28 +399,6 @@ def _copy_text_artifacts(run_id: str, artifacts_dir: Path, *, results_root: Path
             (stored_dir / name).write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
 
 
-@results_app.command("list")
-def list_stored_results() -> None:
-    """List stored run results, newest first."""
-    rows = [
-        (
-            str(record.get("run_id") or ""),
-            str(record.get("created_at") or ""),
-            str(record.get("status") or "unknown"),
-            str(record.get("branch") or ""),
-            str(record.get("label") or ""),
-            str(record.get("cwd") or ""),
-            str(record.get("output_dir") or ""),
-        )
-        for record in list_run_metadata()
-    ]
-    print_plain_table(
-        console,
-        ("RUN_ID", "CREATED_AT", "STATUS", "BRANCH", "LABEL", "CWD", "OUTPUT_DIR"),
-        rows,
-    )
-
-
 @results_app.command("show")
 def show_stored_result(run_id: Annotated[str, typer.Argument(help="Run ID to show.")]) -> None:
     """Show metadata and a short summary for one stored run."""
@@ -584,21 +486,14 @@ def clean(
     ] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Print planned deletions only.")] = False,
     force: Annotated[bool, typer.Option("--force", help="Continue after non-critical errors.")] = False,
-    delete_index: Annotated[
-        bool,
-        typer.Option(
-            "--delete-index",
-            help="Also delete the manifest-recorded default SQLite metadata index database.",
-        ),
-    ] = False,
 ) -> None:
     """Remove generated run artifacts, or stored results with --results."""
     if results:
         if manifest is not None:
             console.print("MANIFEST cannot be used with --results", style="red")
             raise typer.Exit(2)
-        if force or delete_index:
-            console.print("--force and --delete-index apply only to manifest cleanup", style="red")
+        if force:
+            console.print("--force applies only to manifest cleanup", style="red")
             raise typer.Exit(2)
         _clean_stored_results(base_dir=base_dir, dry_run=dry_run)
         return
@@ -615,7 +510,6 @@ def clean(
             manifest,
             dry_run=dry_run,
             force=force,
-            remove_db=delete_index,
         )
     except CleanupSafetyError as exc:
         console.print(f"cleanup safety check failed: {exc}", style="red")

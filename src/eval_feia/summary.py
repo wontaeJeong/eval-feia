@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from rich.console import Console
 
 from .manifest import Manifest, write_json
@@ -21,6 +23,28 @@ def parse_numstat(numstat: str) -> dict[str, int]:
         if parts[1] != "-":
             deletions += int(parts[1])
     return {"files_changed": files, "additions": additions, "deletions": deletions}
+
+
+def extract_opencode_metrics(
+    session: Any,
+    messages: Any,
+    children: Any = None,
+) -> dict[str, int | float | None]:
+    session_metrics = _extract_token_cost_metrics(session)
+    message_metrics = _extract_token_cost_metrics(messages)
+    children_metrics = _extract_token_cost_metrics(children)
+    fallback_metrics = _merge_metrics(
+        message_metrics,
+        children_metrics,
+    )
+    token_metrics = _prefer_metrics(session_metrics, fallback_metrics)
+    return {
+        "token_input": _int_metric(token_metrics.get("token_input")),
+        "token_output": _int_metric(token_metrics.get("token_output")),
+        "token_reasoning": _int_metric(token_metrics.get("token_reasoning")),
+        "tool_call_count": _count_tool_calls(messages, children),
+        "cost_total": _float_metric(token_metrics.get("cost_total")),
+    }
 
 
 def write_run_summary(
@@ -61,9 +85,9 @@ def render_markdown_summary(summary: RunSummary) -> str:
             f"Base ref: {summary['repo']['base_ref']} ({summary['repo']['base_sha']})",
             f"Output: {summary['output_dir']}",
             "",
-            "| Candidate | Branch | Status | Validation | Files | Additions | "
-            "Deletions | Session | Worktree |",
-            "|---|---|---|---|---:|---:|---:|---|---|",
+            "| Candidate | Status | Validation | Elapsed | Files | Additions | "
+            "Deletions | Session | Token In | Token Out | Reason |",
+            "|---|---|---|---:|---:|---:|---:|---|---:|---:|---:|",
         ]
     )
     for candidate in summary["candidates"]:
@@ -71,18 +95,21 @@ def render_markdown_summary(summary: RunSummary) -> str:
         validation = candidate.get("validation_status", "unknown")
         lines.append(
             (
-                "| {candidate_id} | {branch} | {status} | {validation} | "
-                "{files} | {adds} | {dels} | {session} | {worktree} |"
+                "| {candidate_id} | {status} | {validation} | {elapsed} | "
+                "{files} | {adds} | {dels} | {session} | {token_in} | {token_out} | "
+                "{reason} |"
             ).format(
                 candidate_id=candidate.get("candidate_id", ""),
-                branch=candidate.get("branch_name", ""),
-                status=candidate.get("status", ""),
+                status=_display_status(candidate),
                 validation=validation,
+                elapsed=_format_elapsed(candidate.get("duration_seconds")),
                 files=stats.get("files_changed", 0),
                 adds=stats.get("additions", 0),
                 dels=stats.get("deletions", 0),
                 session=candidate.get("session_id") or "",
-                worktree=candidate.get("worktree_path") or "",
+                token_in=_metric_text(stats.get("token_input")),
+                token_out=_metric_text(stats.get("token_output")),
+                reason=_metric_text(stats.get("token_reasoning")),
             )
         )
     lines.append("")
@@ -97,28 +124,205 @@ def print_summary(console: Console, summary: RunSummary) -> None:
         rows.append(
             (
                 str(candidate.get("candidate_id", "")),
-                str(candidate.get("branch_name", "")),
-                str(candidate.get("status", "")),
+                _display_status(candidate),
                 str(candidate.get("validation_status", "unknown")),
+                _format_elapsed(candidate.get("duration_seconds")),
                 str(stats.get("files_changed", 0)),
                 str(stats.get("additions", 0)),
                 str(stats.get("deletions", 0)),
                 str(candidate.get("session_id") or ""),
-                str(candidate.get("worktree_path") or ""),
+                _metric_text(stats.get("token_input")),
+                _metric_text(stats.get("token_output")),
+                _metric_text(stats.get("token_reasoning")),
             )
         )
     print_plain_table(
         console,
         (
             "CANDIDATE",
-            "BRANCH",
             "STATUS",
             "VALIDATION",
+            "ELAPSED",
             "FILES",
             "ADDITIONS",
             "DELETIONS",
             "SESSION",
-            "WORKTREE",
+            "TOKEN_IN",
+            "TOKEN_OUT",
+            "REASON",
         ),
         rows,
     )
+
+
+def _extract_token_cost_metrics(value: Any) -> dict[str, int | float | None]:
+    metrics: dict[str, int | float | None] = {
+        "token_input": None,
+        "token_output": None,
+        "token_reasoning": None,
+        "cost_total": None,
+    }
+    for item in _walk_json(value):
+        if not isinstance(item, dict):
+            continue
+        _add_explicit_metrics(metrics, item)
+        tokens = item.get("tokens") or item.get("usage")
+        if isinstance(tokens, dict):
+            _add_token_container(metrics, tokens)
+    return metrics
+
+
+def _add_explicit_metrics(metrics: dict[str, int | float | None], item: dict[str, Any]) -> None:
+    _add_int_metric(
+        metrics,
+        "token_input",
+        item,
+        ("input_tokens", "inputTokens", "prompt_tokens", "promptTokens"),
+    )
+    _add_int_metric(
+        metrics,
+        "token_output",
+        item,
+        ("output_tokens", "outputTokens", "completion_tokens", "completionTokens"),
+    )
+    _add_int_metric(
+        metrics,
+        "token_reasoning",
+        item,
+        ("reasoning_tokens", "reasoningTokens", "reasoningOutputTokens", "reasoning_output_tokens"),
+    )
+    _add_float_metric(metrics, "cost_total", item, ("cost", "total_cost", "totalCost"))
+
+
+def _add_token_container(metrics: dict[str, int | float | None], tokens: dict[str, Any]) -> None:
+    _add_int_metric(metrics, "token_input", tokens, ("input",))
+    _add_int_metric(metrics, "token_output", tokens, ("output",))
+    _add_int_metric(metrics, "token_reasoning", tokens, ("reasoning",))
+
+
+def _add_int_metric(
+    metrics: dict[str, int | float | None],
+    metric_key: str,
+    item: dict[str, Any],
+    keys: tuple[str, ...],
+) -> None:
+    for key in keys:
+        value = _int_metric(item.get(key))
+        if value is not None:
+            current = metrics.get(metric_key)
+            metrics[metric_key] = int(current or 0) + value
+            return
+
+
+def _add_float_metric(
+    metrics: dict[str, int | float | None],
+    metric_key: str,
+    item: dict[str, Any],
+    keys: tuple[str, ...],
+) -> None:
+    for key in keys:
+        value = _float_metric(item.get(key))
+        if value is not None:
+            current = metrics.get(metric_key)
+            metrics[metric_key] = float(current or 0.0) + value
+            return
+
+
+def _merge_metrics(*items: dict[str, int | float | None]) -> dict[str, int | float | None]:
+    merged: dict[str, int | float | None] = {
+        "token_input": None,
+        "token_output": None,
+        "token_reasoning": None,
+        "cost_total": None,
+    }
+    for item in items:
+        for key, value in item.items():
+            if value is None:
+                continue
+            if isinstance(value, float):
+                merged[key] = float(merged.get(key) or 0.0) + value
+            else:
+                merged[key] = int(merged.get(key) or 0) + value
+    return merged
+
+
+def _prefer_metrics(
+    preferred: dict[str, int | float | None],
+    fallback: dict[str, int | float | None],
+) -> dict[str, int | float | None]:
+    return {key: value if value is not None else fallback.get(key) for key, value in preferred.items()}
+
+
+def _count_tool_calls(*values: Any) -> int | None:
+    call_ids: set[str] = set()
+    anonymous = 0
+    for item in _walk_json(values):
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") != "tool" and "tool" not in item and "toolID" not in item:
+            continue
+        call_id = item.get("id") or item.get("callID") or item.get("toolCallID")
+        if isinstance(call_id, str) and call_id:
+            call_ids.add(call_id)
+        else:
+            anonymous += 1
+    count = len(call_ids) + anonymous
+    return count if count else None
+
+
+def _walk_json(value: Any) -> list[Any]:
+    items = [value]
+    index = 0
+    while index < len(items):
+        current = items[index]
+        index += 1
+        if isinstance(current, dict):
+            items.extend(current.values())
+        elif isinstance(current, list | tuple):
+            items.extend(current)
+    return items
+
+
+def _display_status(candidate: dict[str, Any]) -> str:
+    error = candidate.get("error")
+    if isinstance(error, dict):
+        kind = error.get("kind")
+        if kind in {"timeout", "aborted"}:
+            return str(kind)
+    status = str(candidate.get("status") or "")
+    if status == "passed":
+        return "completed"
+    return status or "unknown"
+
+
+def _format_elapsed(value: Any) -> str:
+    if isinstance(value, bool) or value is None:
+        return ""
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError):
+        return ""
+    return f"{seconds:.3f}s"
+
+
+def _metric_text(value: Any) -> str:
+    metric = _int_metric(value)
+    return "" if metric is None else str(metric)
+
+
+def _int_metric(value: Any) -> int | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    return None
+
+
+def _float_metric(value: Any) -> float | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, int | float):
+        return float(value)
+    return None

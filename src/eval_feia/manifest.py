@@ -56,7 +56,6 @@ class Manifest(BaseModel):
     server: ServerRecord
     output_dir: Path
     worktree_root: Path
-    db_path: Path | None = None
     candidates: list[CandidateManifestRecord] = Field(default_factory=list)
 
     def upsert_candidate(self, record: CandidateManifestRecord) -> None:

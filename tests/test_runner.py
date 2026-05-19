@@ -4,6 +4,8 @@ import json
 import io
 import re
 import sys
+import threading
+import time
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -13,7 +15,6 @@ from rich.console import Console
 from eval_feia.config import EvalConfig
 from eval_feia.opencode_client import DIRECTORY_HEADER, OpencodeClient
 from eval_feia.runner import _health_with_retry, generate_run_id, run_evaluation
-from eval_feia.storage import default_db_path, list_runs
 from tests.helpers import init_git_repo
 
 
@@ -94,14 +95,6 @@ def test_runner_success_collects_children_validation_and_summary(tmp_path: Path)
     assert children[0]["id"] == "ses_child"
     assert (outcome.output_dir / "run-summary.json").exists()
     assert outcome.summary["candidates"][0]["summary"]["files_changed"] == 1
-    indexed = list_runs(default_db_path(config.run.output_root), status="success")
-    assert indexed[0]["id"] == "test-run"
-    assert indexed[0]["branch"] == "HEAD"
-    assert indexed[0]["output_dir"] == str(outcome.output_dir)
-    assert indexed[0]["summary_path"] == str(outcome.output_dir / "run-summary.json")
-    assert indexed[0]["prompt"] is None
-    metadata = json.loads(indexed[0]["metadata_json"])
-    assert metadata["has_inline_prompt"] is False
     assert any(req.url.path == "/session/ses_1/message" and req.method == "POST" for req in seen)
     assert not any("prompt_async" in req.url.path for req in seen)
     for request in seen:
@@ -212,10 +205,6 @@ def test_runner_uses_inline_prompt(tmp_path: Path) -> None:
 
     assert outcome.passed is True
     assert seen_prompt == "hello inline"
-    indexed = list_runs(default_db_path(config.run.output_root), status="success")
-    assert indexed[0]["prompt"] is None
-    metadata = json.loads(indexed[0]["metadata_json"])
-    assert metadata["has_inline_prompt"] is True
 
 
 def test_runner_timeout_aborts_and_collects_partial_artifacts(tmp_path: Path) -> None:
@@ -320,6 +309,265 @@ def test_runner_required_validation_failure_fails_candidate(tmp_path: Path) -> N
         )
     )
     assert result["error"]["kind"] == "validation_failed"
+
+
+def test_runner_progress_logs_matching_session_events_and_metrics(tmp_path: Path) -> None:
+    repo = init_git_repo(tmp_path / "repo")
+    prompt = repo / "prompt.md"
+    prompt.write_text("progress\n", encoding="utf-8")
+    event_started = threading.Event()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        cwd = _request_cwd(request) if request.url.path != "/global/health" else ""
+        if request.url.path == "/global/health":
+            return httpx.Response(200, json={"healthy": True, "version": "fake"})
+        if request.url.path == "/event":
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                stream=_EventStream(
+                    event_started,
+                    [
+                        _event_bytes(
+                            {
+                                "id": "evt_1",
+                                "type": "session.status",
+                                "properties": {
+                                    "sessionID": "ses_1",
+                                    "status": {"type": "busy"},
+                                },
+                            }
+                        ),
+                        _event_bytes(
+                            {
+                                "id": "evt_ignored",
+                                "type": "session.status",
+                                "properties": {
+                                    "sessionID": "ses_unknown",
+                                    "status": {"type": "busy"},
+                                },
+                            }
+                        ),
+                        _event_bytes(
+                            {
+                                "id": "evt_2",
+                                "type": "session.next.tool.called",
+                                "properties": {
+                                    "sessionID": "ses_1",
+                                    "callID": "call_1",
+                                    "tool": "bash",
+                                    "input": {},
+                                    "provider": {"executed": True},
+                                },
+                            }
+                        ),
+                        _event_bytes(
+                            {
+                                "id": "evt_3",
+                                "type": "session.idle",
+                                "properties": {"sessionID": "ses_1"},
+                            }
+                        ),
+                    ],
+                ),
+            )
+        if request.url.path in {"/path", "/project/current", "/config", "/vcs"}:
+            return httpx.Response(200, json={"path": cwd})
+        if request.url.path == "/session" and request.method == "POST":
+            return httpx.Response(200, json={"id": "ses_1", "directory": cwd})
+        if request.url.path == "/session/ses_1/message" and request.method == "POST":
+            assert event_started.wait(timeout=1)
+            time.sleep(0.05)
+            return httpx.Response(200, json={"ok": True})
+        if request.url.path == "/session/ses_1":
+            return httpx.Response(
+                200,
+                json={
+                    "id": "ses_1",
+                    "directory": cwd,
+                    "tokens": {"input": 11, "output": 22, "reasoning": 3, "cache": {"read": 0, "write": 0}},
+                    "cost": 0.01,
+                },
+            )
+        if request.url.path == "/session/ses_1/message":
+            return httpx.Response(200, json=[])
+        if request.url.path == "/session/ses_1/children":
+            return httpx.Response(200, json=[])
+        if request.url.path == "/session/ses_1/todo":
+            return httpx.Response(200, json=[])
+        if request.url.path == "/session/ses_1/diff":
+            return httpx.Response(200, json={})
+        if request.url.path == "/file/status":
+            return httpx.Response(200, json=[])
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    output = io.StringIO()
+    client = OpencodeClient("http://opencode.test", transport=httpx.MockTransport(handler))
+    outcome = run_evaluation(
+        _config(repo, prompt),
+        client=client,
+        console=Console(file=output, width=240),
+        run_id="progress-run",
+    )
+
+    text = output.getvalue()
+    assert outcome.passed is True
+    assert "[trial 1/1][id=cand-001][session=ses_1]" in text
+    assert "session status: busy" in text
+    assert "tool started: bash" in text
+    assert "ses_unknown" not in text
+    summary = outcome.summary["candidates"][0]["summary"]
+    assert summary["token_input"] == 11
+    assert summary["token_output"] == 22
+    assert summary["token_reasoning"] == 3
+    assert summary["tool_call_count"] == 1
+
+
+def test_runner_event_stream_failure_warns_and_continues(tmp_path: Path) -> None:
+    repo = init_git_repo(tmp_path / "repo")
+    prompt = repo / "prompt.md"
+    prompt.write_text("progress failure\n", encoding="utf-8")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        cwd = _request_cwd(request) if request.url.path != "/global/health" else ""
+        if request.url.path == "/global/health":
+            return httpx.Response(200, json={"healthy": True, "version": "fake"})
+        if request.url.path == "/event":
+            raise httpx.ConnectError("stream unavailable", request=request)
+        if request.url.path in {"/path", "/project/current", "/config", "/vcs"}:
+            return httpx.Response(200, json={"path": cwd})
+        if request.url.path == "/session" and request.method == "POST":
+            return httpx.Response(200, json={"id": "ses_1", "directory": cwd})
+        if request.url.path == "/session/ses_1/message" and request.method == "POST":
+            return httpx.Response(200, json={"ok": True})
+        if request.url.path == "/session/ses_1":
+            return httpx.Response(200, json={"id": "ses_1", "directory": cwd})
+        if request.url.path == "/session/ses_1/message":
+            return httpx.Response(200, json=[])
+        if request.url.path == "/session/ses_1/children":
+            return httpx.Response(200, json=[])
+        if request.url.path == "/session/ses_1/todo":
+            return httpx.Response(200, json=[])
+        if request.url.path == "/session/ses_1/diff":
+            return httpx.Response(200, json={})
+        if request.url.path == "/file/status":
+            return httpx.Response(200, json=[])
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    output = io.StringIO()
+    client = OpencodeClient("http://opencode.test", transport=httpx.MockTransport(handler))
+    outcome = run_evaluation(
+        _config(repo, prompt),
+        client=client,
+        console=Console(file=output, width=240),
+        run_id="progress-failure-run",
+    )
+
+    assert outcome.passed is True
+    assert "event stream disconnected" in output.getvalue()
+    assert "continuing without live progress" in output.getvalue()
+
+
+def test_runner_progress_false_suppresses_trial_logs(tmp_path: Path) -> None:
+    repo = init_git_repo(tmp_path / "repo")
+    prompt = repo / "prompt.md"
+    prompt.write_text("quiet\n", encoding="utf-8")
+    seen_paths: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_paths.append(request.url.path)
+        cwd = _request_cwd(request) if request.url.path != "/global/health" else ""
+        if request.url.path == "/global/health":
+            return httpx.Response(200, json={"healthy": True, "version": "fake"})
+        if request.url.path in {"/path", "/project/current", "/config", "/vcs"}:
+            return httpx.Response(200, json={"path": cwd})
+        if request.url.path == "/session" and request.method == "POST":
+            return httpx.Response(200, json={"id": "ses_1", "directory": cwd})
+        if request.url.path == "/session/ses_1/message" and request.method == "POST":
+            return httpx.Response(200, json={"ok": True})
+        if request.url.path == "/session/ses_1":
+            return httpx.Response(200, json={"id": "ses_1", "directory": cwd})
+        if request.url.path == "/session/ses_1/message":
+            return httpx.Response(200, json=[])
+        if request.url.path == "/session/ses_1/children":
+            return httpx.Response(200, json=[])
+        if request.url.path == "/session/ses_1/todo":
+            return httpx.Response(200, json=[])
+        if request.url.path == "/session/ses_1/diff":
+            return httpx.Response(200, json={})
+        if request.url.path == "/file/status":
+            return httpx.Response(200, json=[])
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    config = _config(repo, prompt)
+    config.run.progress = False
+    output = io.StringIO()
+    client = OpencodeClient("http://opencode.test", transport=httpx.MockTransport(handler))
+    outcome = run_evaluation(
+        config,
+        client=client,
+        console=Console(file=output, width=240),
+        run_id="quiet-run",
+    )
+
+    assert outcome.passed is True
+    assert "/event" not in seen_paths
+    assert "[trial" not in output.getvalue()
+    assert "progress:" not in output.getvalue()
+
+
+def test_runner_stops_event_stream_without_idle_event(tmp_path: Path) -> None:
+    repo = init_git_repo(tmp_path / "repo")
+    prompt = repo / "prompt.md"
+    prompt.write_text("blocking stream\n", encoding="utf-8")
+    event_started = threading.Event()
+    event_closed = threading.Event()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        cwd = _request_cwd(request) if request.url.path != "/global/health" else ""
+        if request.url.path == "/global/health":
+            return httpx.Response(200, json={"healthy": True, "version": "fake"})
+        if request.url.path == "/event":
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                stream=_BlockingEventStream(event_started, event_closed),
+            )
+        if request.url.path in {"/path", "/project/current", "/config", "/vcs"}:
+            return httpx.Response(200, json={"path": cwd})
+        if request.url.path == "/session" and request.method == "POST":
+            return httpx.Response(200, json={"id": "ses_1", "directory": cwd})
+        if request.url.path == "/session/ses_1/message" and request.method == "POST":
+            assert event_started.wait(timeout=1)
+            return httpx.Response(200, json={"ok": True})
+        if request.url.path == "/session/ses_1":
+            return httpx.Response(200, json={"id": "ses_1", "directory": cwd})
+        if request.url.path == "/session/ses_1/message":
+            return httpx.Response(200, json=[])
+        if request.url.path == "/session/ses_1/children":
+            return httpx.Response(200, json=[])
+        if request.url.path == "/session/ses_1/todo":
+            return httpx.Response(200, json=[])
+        if request.url.path == "/session/ses_1/diff":
+            return httpx.Response(200, json={})
+        if request.url.path == "/file/status":
+            return httpx.Response(200, json=[])
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    client = OpencodeClient("http://opencode.test", transport=httpx.MockTransport(handler))
+    outcome = run_evaluation(
+        _config(repo, prompt),
+        client=client,
+        console=Console(file=io.StringIO(), width=240),
+        run_id="blocking-stream-run",
+    )
+
+    assert outcome.passed is True
+    assert event_closed.is_set()
+    assert not any(
+        thread.name.startswith("eval-feia-progress-") and thread.is_alive()
+        for thread in threading.enumerate()
+    )
 
 
 def test_runner_records_resolved_branch_names_labels_and_worktrees(tmp_path: Path) -> None:
@@ -443,7 +691,7 @@ def test_runner_records_resolved_branch_names_labels_and_worktrees(tmp_path: Pat
     assert "opencode request: message" in output.getvalue()
     assert "validation commands: 0" in output.getvalue()
     assert "progress: creating worktrees" in output.getvalue()
-    worktree_table_output = output.getvalue().split("[one] session:", 1)[0]
+    worktree_table_output = output.getvalue().split("[trial 1/2]", 1)[0]
     assert "WORKTREE" in worktree_table_output
     assert "CANDIDATE" not in worktree_table_output
     assert "BRANCH" not in worktree_table_output
@@ -456,9 +704,12 @@ def test_runner_records_resolved_branch_names_labels_and_worktrees(tmp_path: Pat
     assert "progress: writing final summary" in output.getvalue()
     summary_output = output.getvalue().split("progress: writing final summary", 1)[1]
     assert "eval-feia run summary" in summary_output
-    assert "CANDIDATE  BRANCH" in summary_output
-    assert "eval/branch-run/duplicate" in summary_output
-    assert "eval/branch-run/duplicate-2" in summary_output
+    assert "CANDIDATE  STATUS" in summary_output
+    assert "TOKEN_IN" in summary_output
+    assert "BRANCH" not in summary_output
+    assert "WORKTREE" not in summary_output
+    assert "eval/branch-run/duplicate" not in summary_output
+    assert "eval/branch-run/duplicate-2" not in summary_output
     assert "┏" not in summary_output
     assert "│" not in summary_output
 
@@ -495,6 +746,35 @@ def test_health_retry_uses_dedicated_timeout() -> None:
 
 def test_generate_run_id_is_readable_and_low_collision_shape() -> None:
     assert re.fullmatch(r"\d{8}-\d{6}-[0-9a-f]{6}", generate_run_id())
+
+
+class _EventStream(httpx.SyncByteStream):
+    def __init__(self, started: threading.Event, chunks: list[bytes]) -> None:
+        self._started = started
+        self._chunks = chunks
+
+    def __iter__(self):
+        self._started.set()
+        yield from self._chunks
+
+
+def _event_bytes(payload: dict[str, object]) -> bytes:
+    return ("data: " + json.dumps(payload) + "\n\n").encode()
+
+
+class _BlockingEventStream(httpx.SyncByteStream):
+    def __init__(self, started: threading.Event, closed: threading.Event) -> None:
+        self._started = started
+        self._closed = closed
+
+    def __iter__(self):
+        self._started.set()
+        self._closed.wait(timeout=5)
+        if not self._closed.is_set():
+            yield b""
+
+    def close(self) -> None:
+        self._closed.set()
 
 
 def _config(
